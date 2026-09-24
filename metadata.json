@@ -1,0 +1,7 @@
+{
+  "name": "BloxArcade Xbox 2020 - Unblocked Games",
+  "description": "Atlas unblocked games hub with real playable arcade games, custom libraries, favorites, and stealth mode.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

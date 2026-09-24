@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-heading: 'Rajdhani', 'Plus Jakarta Sans', sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #07090d;
+    color: #e5e7eb;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(10, 14, 20, 0.7);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(45, 65, 90, 0.6);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 162, 255, 0.8);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Atlas Ambient Neon Grid Bars */
+.atlas-neon-grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: 
+    radial-gradient(ellipse at 70% 25%, rgba(0, 162, 255, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse at 20% 80%, rgba(10, 20, 35, 0.6) 0%, transparent 60%),
+    linear-gradient(135deg, #070a10 0%, #0d121c 50%, #080c14 100%);
+}
+
+.atlas-neon-bars {
+  position: absolute;
+  top: 0;
+  right: 8%;
+  width: 580px;
+  height: 480px;
+  opacity: 0.42;
+  perspective: 600px;
+  transform: rotateX(12deg) rotateY(-18deg) skewY(-4deg);
+}
+
+.neon-bar-v {
+  position: absolute;
+  width: 7px;
+  height: 100%;
+  background: linear-gradient(180deg, rgba(0, 162, 255, 0.9) 0%, rgba(0, 130, 210, 0.3) 100%);
+  box-shadow: 0 0 16px rgba(0, 162, 255, 0.65), 0 0 32px rgba(0, 162, 255, 0.3);
+}
+
+.neon-bar-h {
+  position: absolute;
+  height: 6px;
+  width: 100%;
+  background: linear-gradient(90deg, rgba(0, 162, 255, 0.85) 0%, rgba(0, 130, 210, 0.2) 100%);
+  box-shadow: 0 0 14px rgba(0, 162, 255, 0.6), 0 0 28px rgba(0, 162, 255, 0.25);
+}
+
+/* Interactive Tile Focus */
+.atlas-tile {
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease, border-color 0.15s ease;
+  outline: none;
+}
+.atlas-tile:hover,
+.atlas-tile:focus-visible {
+  transform: scale(1.03);
+  border-color: #00A2FF !important;
+  box-shadow: 0 0 0 2.5px rgba(0, 162, 255, 0.8), 0 10px 20px -5px rgba(0, 0, 0, 0.8);
+  z-index: 10;
+}
