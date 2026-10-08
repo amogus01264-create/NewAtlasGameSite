@@ -60,12 +60,21 @@ async function startServer() {
   // API: Reverse Proxy that strips X-Frame-Options and Content-Security-Policy
   app.get('/api/proxy', async (req, res) => {
     const targetUrl = req.query.url as string;
-    if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
+    if (!targetUrl || typeof targetUrl !== 'string') {
       return res.status(400).send('Invalid or missing target URL.');
     }
 
+    let parsedUrl: URL;
     try {
-      const parsedUrl = new URL(targetUrl);
+      parsedUrl = new URL(targetUrl);
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        return res.status(400).send('Only HTTP and HTTPS URLs are supported.');
+      }
+    } catch {
+      return res.status(400).send('Malformed target URL.');
+    }
+
+    try {
       const origin = parsedUrl.origin;
 
       const upstreamRes = await fetch(targetUrl, {

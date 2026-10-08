@@ -64,3 +64,22 @@ export interface RegisteredAccount {
   gender?: 'female' | 'male' | null;
   createdAt: string;
 }
+
+export type TabCloakPreset =
+  | 'none'
+  | 'classroom'
+  | 'drive'
+  | 'docs'
+  | 'slides'
+  | 'canvas'
+  | 'desmos'
+  | 'khan'
+  | 'wikipedia'
+  | 'custom';
+
+export interface TabCloakConfig {
+  preset: TabCloakPreset;
+  customTitle?: string;
+  customIcon?: string;
+}
+

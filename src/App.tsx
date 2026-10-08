@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { CustomGame, Friend, FriendRequest, NavTab, NetworkUser, UserProfile } from './types';
+import { CustomGame, Friend, FriendRequest, NavTab, NetworkUser, UserProfile, TabCloakConfig } from './types';
 import { sounds } from './services/soundEffects';
 import { HeaderNav } from './components/HeaderNav';
 import { HomeScreen } from './components/HomeScreen';
@@ -9,9 +9,11 @@ import { AddGameModal } from './components/AddGameModal';
 import { FriendBrowserModal } from './components/FriendBrowserModal';
 import { GameRunnerModal } from './components/GameRunnerModal';
 import { SettingsModal } from './components/SettingsModal';
+import { TabCloakModal } from './components/TabCloakModal';
 import { StealthView } from './components/StealthView';
 import { SignInModal } from './components/SignInModal';
 import { MISSING_TEXTURE_DATA_URL } from './utils/assets';
+import { getSavedTabCloak, applyTabCloak } from './services/tabCloak';
 import {
   getSavedSession,
   saveSession,
@@ -51,8 +53,15 @@ export default function App() {
   const [addGameOpen, setAddGameOpen] = useState(false);
   const [friendBrowserOpen, setFriendBrowserOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tabCloakOpen, setTabCloakOpen] = useState(false);
   const [stealthActive, setStealthActive] = useState(false);
   const [isMuted, setIsMuted] = useState(sounds.isMuted());
+  const [cloakConfig, setCloakConfig] = useState<TabCloakConfig>(getSavedTabCloak);
+
+  // Apply saved tab disguise on startup and on change
+  useEffect(() => {
+    applyTabCloak(cloakConfig);
+  }, [cloakConfig]);
 
   // User Profile & Authentication State (Checks saved session first)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
@@ -357,6 +366,7 @@ export default function App() {
         if (addGameOpen) setAddGameOpen(false);
         else if (friendBrowserOpen) setFriendBrowserOpen(false);
         else if (settingsOpen) setSettingsOpen(false);
+        else if (tabCloakOpen) setTabCloakOpen(false);
         else if (activeGame) setActiveGame(null);
         else if (stealthActive) setStealthActive(false);
       }
@@ -364,7 +374,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [addGameOpen, friendBrowserOpen, settingsOpen, activeGame, stealthActive]);
+  }, [addGameOpen, friendBrowserOpen, settingsOpen, tabCloakOpen, activeGame, stealthActive]);
 
   // If user is not signed in and has no saved session, show the SignInModal
   if (!userProfile) {
@@ -373,15 +383,8 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen flex flex-col bg-[#070a10] text-white overflow-x-hidden font-sans">
-      {/* Ambient Blue Glow & Perspective 3D Neon Bars */}
+      {/* Ambient Blue Glow Background */}
       <div className="atlas-neon-grid" />
-      <div className="atlas-neon-bars pointer-events-none">
-        <div className="neon-bar-v left-[15%]" />
-        <div className="neon-bar-v left-[45%]" />
-        <div className="neon-bar-v left-[75%]" />
-        <div className="neon-bar-h top-[25%]" />
-        <div className="neon-bar-h top-[60%]" />
-      </div>
 
       {/* Panic / Stealth Camouflage Screen */}
       {stealthActive && <StealthView onExit={() => setStealthActive(false)} />}
@@ -402,6 +405,9 @@ export default function App() {
             setFriendBrowserOpen(true);
           }
         }}
+        onOpenTabCloak={() => setTabCloakOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+        cloakConfig={cloakConfig}
         onLogOut={handleLogOut}
         onPromptSignIn={handleLogOut}
       />
@@ -493,9 +499,24 @@ export default function App() {
           }}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
+          cloakConfig={cloakConfig}
+          onUpdateCloak={setCloakConfig}
+          onOpenFullCloak={() => {
+            setSettingsOpen(false);
+            setTabCloakOpen(true);
+          }}
           onClearCustomGames={handleClearCustomGames}
           onResetData={handleResetData}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {/* Tab Cloaker Disguise Modal */}
+      {tabCloakOpen && (
+        <TabCloakModal
+          currentConfig={cloakConfig}
+          onConfigChange={setCloakConfig}
+          onClose={() => setTabCloakOpen(false)}
         />
       )}
 

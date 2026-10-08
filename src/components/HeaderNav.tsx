@@ -1,8 +1,9 @@
 import React from 'react';
-import { NavTab, UserProfile } from '../types';
+import { NavTab, UserProfile, TabCloakConfig } from '../types';
 import { AtlasLogo } from './AtlasLogo';
-import { Volume2, VolumeX, EyeOff, Plus, UserPlus, LogOut, Lock } from 'lucide-react';
+import { Volume2, VolumeX, EyeOff, Plus, UserPlus, LogOut, Lock, Shield, Settings } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
+import { CLOAK_PRESETS } from '../services/tabCloak';
 
 interface HeaderNavProps {
   currentTab: NavTab;
@@ -13,6 +14,9 @@ interface HeaderNavProps {
   onTriggerStealth: () => void;
   onOpenAddGame: () => void;
   onOpenAddFriend: () => void;
+  onOpenTabCloak: () => void;
+  onOpenSettings: () => void;
+  cloakConfig: TabCloakConfig;
   onLogOut: () => void;
   onPromptSignIn?: () => void;
 }
@@ -26,6 +30,9 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onTriggerStealth,
   onOpenAddGame,
   onOpenAddFriend,
+  onOpenTabCloak,
+  onOpenSettings,
+  cloakConfig,
   onLogOut,
   onPromptSignIn,
 }) => {
@@ -34,6 +41,9 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
     { key: 'GAMES', label: 'GAMES' },
     { key: 'FRIENDS', label: 'FRIENDS' },
   ];
+
+  const activePreset = CLOAK_PRESETS.find((p) => p.id === cloakConfig.preset);
+  const isCloaked = cloakConfig.preset !== 'none';
 
   const handleAddFriendClick = () => {
     if (userProfile.isGuest) {
@@ -98,6 +108,28 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             </button>
           )}
 
+          {/* Tab Cloaker Disguise Button */}
+          <button
+            onClick={() => {
+              sounds.playSelect();
+              onOpenTabCloak();
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+              isCloaked
+                ? 'bg-emerald-950/40 hover:bg-emerald-900/60 border-emerald-500/50 text-emerald-300 ring-1 ring-emerald-500/30'
+                : 'bg-[#182030] hover:bg-[#202b40] border-slate-700 text-slate-300'
+            }`}
+            title="Tab Cloaker: Disguise tab as Google Classroom, Drive, Docs, etc."
+          >
+            <Shield className={`w-3.5 h-3.5 ${isCloaked ? 'text-emerald-400' : 'text-cyan-400'}`} />
+            <span className="hidden sm:inline">
+              {isCloaked ? (activePreset?.badge || 'Cloaked') : 'Cloak Tab'}
+            </span>
+            {isCloaked && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            )}
+          </button>
+
           {/* Panic / Stealth Button */}
           <button
             onClick={onTriggerStealth}
@@ -106,6 +138,18 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
           >
             <EyeOff className="w-3.5 h-3.5 text-red-400" />
             <span className="hidden sm:inline">Panic (P)</span>
+          </button>
+
+          {/* Settings Button */}
+          <button
+            onClick={() => {
+              sounds.playSelect();
+              onOpenSettings();
+            }}
+            className="p-1.5 bg-[#161c28] hover:bg-[#20283a] text-slate-300 border border-slate-700/60 rounded-lg transition-colors cursor-pointer"
+            title="Atlas Settings"
+          >
+            <Settings className="w-4 h-4 text-cyan-400" />
           </button>
 
           {/* Sound Toggle */}

@@ -1,13 +1,17 @@
 import React, { useState, useRef } from 'react';
-import { UserProfile } from '../types';
-import { X, Volume2, VolumeX, RotateCcw, User, ShieldCheck, Upload, Settings, Trash2 } from 'lucide-react';
+import { UserProfile, TabCloakConfig, TabCloakPreset } from '../types';
+import { X, Volume2, VolumeX, RotateCcw, User, ShieldCheck, Upload, Settings, Trash2, Shield, ExternalLink, Check } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
+import { CLOAK_PRESETS, applyTabCloak, saveTabCloak } from '../services/tabCloak';
 
 interface SettingsModalProps {
   userProfile: UserProfile;
   onUpdateProfile: (profile: UserProfile) => void;
   isMuted: boolean;
   onToggleMute: () => void;
+  cloakConfig: TabCloakConfig;
+  onUpdateCloak: (config: TabCloakConfig) => void;
+  onOpenFullCloak: () => void;
   onClearCustomGames: () => void;
   onResetData: () => void;
   onClose: () => void;
@@ -18,6 +22,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateProfile,
   isMuted,
   onToggleMute,
+  cloakConfig,
+  onUpdateCloak,
+  onOpenFullCloak,
   onClearCustomGames,
   onResetData,
   onClose,
@@ -135,6 +142,73 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* Tab Cloaker Disguise */}
+          <div className="p-4 bg-[#1b2234] rounded-xl border border-slate-700/60 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-bold text-white flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-cyan-400" />
+                  <span>Tab Cloaker & Disguise</span>
+                  {cloakConfig.preset !== 'none' && (
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.5 rounded font-bold uppercase">
+                      Active
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  Change the browser tab name and icon to look like school or productivity apps.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  sounds.playSelect();
+                  onOpenFullCloak();
+                }}
+                className="text-xs text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1 cursor-pointer shrink-0"
+              >
+                <span>Customize</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Quick Preset Buttons */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              {[
+                { id: 'none' as const, label: 'Default', icon: '/favicon.ico' },
+                { id: 'classroom' as const, label: 'Classroom', icon: 'https://ssl.gstatic.com/classroom/favicon.png' },
+                { id: 'drive' as const, label: 'Google Drive', icon: 'https://ssl.gstatic.com/images/branding/product/1x/drive_2020q4_32dp.png' },
+                { id: 'docs' as const, label: 'Google Docs', icon: 'https://ssl.gstatic.com/docs/documents/images/kix-favicon7.ico' },
+              ].map((item) => {
+                const isActive = cloakConfig.preset === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      sounds.playSelect();
+                      const next: TabCloakConfig = { preset: item.id };
+                      applyTabCloak(next);
+                      saveTabCloak(next);
+                      onUpdateCloak(next);
+                    }}
+                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-cyan-950/50 border-cyan-500 text-white shadow-sm ring-1 ring-cyan-500/40'
+                        : 'bg-[#151a28] hover:bg-[#1e2538] border-slate-700/80 text-slate-300'
+                    }`}
+                  >
+                    <div className="w-4 h-4 shrink-0 flex items-center justify-center">
+                      <img src={item.icon} alt="" className="w-3.5 h-3.5 object-contain" />
+                    </div>
+                    <span className="truncate">{item.label}</span>
+                    {isActive && <Check className="w-3 h-3 text-cyan-400 ml-auto shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Sound Preferences */}
