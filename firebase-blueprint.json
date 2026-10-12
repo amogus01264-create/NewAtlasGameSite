@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Registered player account profile and credentials",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string", "description": "Unique gamertag username" },
+        "password": { "type": "string", "description": "Account password" },
+        "gamerpic": { "type": "string", "description": "Avatar data URL or image link" },
+        "createdAt": { "type": "string", "description": "Timestamp of account creation" },
+        "gender": { "type": "string", "description": "User gender if provided" }
+      },
+      "required": ["username", "password", "createdAt"]
+    },
+    "Friend": {
+      "title": "Friend",
+      "description": "Friend link record for a player",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique friend link record ID" },
+        "ownerUsername": { "type": "string", "description": "Username of the player who owns this friend record" },
+        "username": { "type": "string", "description": "Username of the befriended player" },
+        "status": { "type": "string", "description": "Online presence status" },
+        "avatarPic": { "type": "string", "description": "Avatar pic of the friend" },
+        "addedAt": { "type": "string", "description": "Timestamp when added" }
+      },
+      "required": ["id", "ownerUsername", "username", "addedAt"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "Real-time friend request sent between players",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique request ID" },
+        "fromUser": { "type": "string", "description": "Username of the sender" },
+        "toUser": { "type": "string", "description": "Username of the recipient" },
+        "fromPic": { "type": "string", "description": "Sender avatar pic" },
+        "toPic": { "type": "string", "description": "Recipient avatar pic" },
+        "status": { "type": "string", "description": "Pending, accepted, or declined" },
+        "timestamp": { "type": "string", "description": "ISO timestamp of the request" }
+      },
+      "required": ["id", "fromUser", "toUser", "status", "timestamp"]
+    },
+    "LiveStream": {
+      "title": "LiveStream",
+      "description": "Live game broadcast session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique stream identifier" },
+        "streamer": { "type": "string", "description": "Streamer gamertag" },
+        "streamerPic": { "type": "string", "description": "Streamer gamerpic" },
+        "title": { "type": "string", "description": "Stream broadcast title" },
+        "gameTitle": { "type": "string", "description": "Game currently played" },
+        "visibility": { "type": "string", "description": "Stream visibility: public or friends" },
+        "status": { "type": "string", "description": "Stream status: live or ended" },
+        "startedAt": { "type": "string", "description": "Start timestamp" },
+        "viewerCount": { "type": "number", "description": "Active viewer count" }
+      },
+      "required": ["id", "streamer", "gameTitle", "visibility", "status", "startedAt"]
+    },
+    "StreamMessage": {
+      "title": "StreamMessage",
+      "description": "Chat message sent in a live stream",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique chat message ID" },
+        "streamId": { "type": "string", "description": "Stream ID" },
+        "sender": { "type": "string", "description": "Sender gamertag" },
+        "senderPic": { "type": "string", "description": "Sender gamerpic" },
+        "text": { "type": "string", "description": "Message text" },
+        "timestamp": { "type": "string", "description": "Timestamp" }
+      },
+      "required": ["id", "streamId", "sender", "text", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/accounts/{username}": {
+      "schema": "UserAccount",
+      "description": "User accounts indexed by lowercase username"
+    },
+    "/friends/{friendId}": {
+      "schema": "Friend",
+      "description": "Friend connections"
+    },
+    "/friendRequests/{requestId}": {
+      "schema": "FriendRequest",
+      "description": "Friend requests sent between players"
+    },
+    "/streams/{streamId}": {
+      "schema": "LiveStream",
+      "description": "Active and past game live streams"
+    },
+    "/streams/{streamId}/messages/{messageId}": {
+      "schema": "StreamMessage",
+      "description": "Real-time chat messages for a stream"
+    },
+    "/streams/{streamId}/signals/{signalId}": {
+      "schema": "LiveStream",
+      "description": "WebRTC P2P signaling packets for live video transmission"
+    }
+  }
+}

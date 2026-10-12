@@ -1,19 +1,24 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { CustomGame, Friend, FriendRequest, NavTab, NetworkUser, UserProfile, TabCloakConfig } from './types';
+import { CustomGame, Friend, FriendRequest, NavTab, NetworkUser, UserProfile, TabCloakConfig, LiveStream } from './types';
 import { sounds } from './services/soundEffects';
 import { HeaderNav } from './components/HeaderNav';
 import { HomeScreen } from './components/HomeScreen';
 import { GamesScreen } from './components/GamesScreen';
+import { StreamsScreen } from './components/StreamsScreen';
 import { FriendsScreen } from './components/FriendsScreen';
 import { AddGameModal } from './components/AddGameModal';
 import { FriendBrowserModal } from './components/FriendBrowserModal';
 import { GameRunnerModal } from './components/GameRunnerModal';
 import { SettingsModal } from './components/SettingsModal';
 import { TabCloakModal } from './components/TabCloakModal';
+import { StartStreamModal } from './components/StartStreamModal';
+import { LiveStreamPlayerModal } from './components/LiveStreamPlayerModal';
 import { StealthView } from './components/StealthView';
 import { SignInModal } from './components/SignInModal';
 import { MISSING_TEXTURE_DATA_URL } from './utils/assets';
 import { getSavedTabCloak, applyTabCloak } from './services/tabCloak';
+import { testConnection } from './services/firebase';
+import { subscribeToActiveStreams, endLiveStream } from './services/streamingService';
 import {
   getSavedSession,
   saveSession,
@@ -21,13 +26,19 @@ import {
   saveFriendsForUser,
   getRequestsForUser,
   saveRequestsForUser,
+  subscribeToFriends,
+  subscribeToRequests,
+  sendFriendRequestCloud,
+  acceptFriendRequestCloud,
+  declineFriendRequestCloud,
+  unfriendUsersAsync,
   unfriendUsers,
 } from './services/userService';
 
 export const PRESET_GAMES: CustomGame[] = [
   {
     id: 'game-geo',
-    title: 'Geometry Dash WASM',
+    title: 'Geometry Dash',
     url: 'https://truffled.lol/games/geo/index.html',
     thumbnail: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80',
     genre: 'Action',
@@ -54,6 +65,11 @@ export default function App() {
   const [friendBrowserOpen, setFriendBrowserOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tabCloakOpen, setTabCloakOpen] = useState(false);
+  const [startStreamOpen, setStartStreamOpen] = useState(false);
+  const [streamGameTarget, setStreamGameTarget] = useState<CustomGame | null>(null);
+  const [watchingStream, setWatchingStream] = useState<LiveStream | null>(null);
+  const [myActiveStream, setMyActiveStream] = useState<LiveStream | null>(null);
+  const [activeStreams, setActiveStreams] = useState<LiveStream[]>([]);
   const [stealthActive, setStealthActive] = useState(false);
   const [isMuted, setIsMuted] = useState(sounds.isMuted());
   const [cloakConfig, setCloakConfig] = useState<TabCloakConfig>(getSavedTabCloak);
@@ -62,6 +78,11 @@ export default function App() {
   useEffect(() => {
     applyTabCloak(cloakConfig);
   }, [cloakConfig]);
+
+  // Initial Firestore connection validation
+  useEffect(() => {
+    testConnection().catch(console.warn);
+  }, []);
 
   // User Profile & Authentication State (Checks saved session first)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => {
@@ -88,10 +109,10 @@ export default function App() {
           const filtered = parsed.filter(
             (g) => g.id !== 'starter-1' && g.id !== 'starter-2' && g.id !== 'starter-3'
           );
-          // Normalize preset games with isPreset: true
+          // Normalize preset games with isPreset: true and current title
           const normalized = filtered.map((g) => {
-            if (isGamePreset(g)) {
-              return { ...g, isPreset: true };
+            if (isGamePreset(g) || g.id === 'game-geo' || g.title === 'Geometry Dash WASM') {
+              return { ...g, title: 'Geometry Dash', isPreset: true };
             }
             return g;
           });
@@ -127,32 +148,44 @@ export default function App() {
     return getRequestsForUser(userProfile.gamertag);
   });
 
-  // When active user account changes, reload their unique scoped friends and requests
+  // When active user account changes, subscribe to realtime friends and requests from Cloud Firestore
   useEffect(() => {
     if (userProfile && !userProfile.isGuest) {
-      const loadedFriends = getFriendsForUser(userProfile.gamertag);
-      const loadedRequests = getRequestsForUser(userProfile.gamertag);
-      setFriends(loadedFriends);
-      setRequests(loadedRequests);
+      // 1. Initial cached load for immediate UI display
+      setFriends(getFriendsForUser(userProfile.gamertag));
+      setRequests(getRequestsForUser(userProfile.gamertag));
+
+      // 2. Realtime sync with Cloud Firestore
+      const unsubFriends = subscribeToFriends(userProfile.gamertag, (liveFriends) => {
+        setFriends(liveFriends);
+      });
+      const unsubRequests = subscribeToRequests(userProfile.gamertag, (liveRequests) => {
+        setRequests(liveRequests);
+      });
+
+      return () => {
+        unsubFriends();
+        unsubRequests();
+      };
     } else {
       setFriends([]);
       setRequests([]);
     }
   }, [userProfile?.gamertag, userProfile?.isGuest]);
 
-  // Persist friends for current user account
+  // Realtime subscription to live game broadcasts on Atlas
   useEffect(() => {
-    if (userProfile && !userProfile.isGuest) {
-      saveFriendsForUser(userProfile.gamertag, friends);
-    }
-  }, [friends, userProfile]);
-
-  // Persist requests for current user account
-  useEffect(() => {
-    if (userProfile && !userProfile.isGuest) {
-      saveRequestsForUser(userProfile.gamertag, requests);
-    }
-  }, [requests, userProfile]);
+    const unsubStreams = subscribeToActiveStreams(userProfile, friends, (streams) => {
+      setActiveStreams(streams);
+      if (myActiveStream) {
+        const stillLive = streams.find((s) => s.id === myActiveStream.id && s.status === 'live');
+        if (!stillLive) {
+          setMyActiveStream(null);
+        }
+      }
+    });
+    return unsubStreams;
+  }, [userProfile?.gamertag, friends, myActiveStream?.id]);
 
   // Games persistence
   useEffect(() => {
@@ -206,7 +239,7 @@ export default function App() {
     );
   };
 
-  // Actions: Friend Requests & Approval Flow
+  // Actions: Friend Requests & Approval Flow (Cloud Synced)
   const handleSendRequest = (targetUser: NetworkUser) => {
     if (!userProfile || userProfile.isGuest) return;
 
@@ -220,12 +253,11 @@ export default function App() {
       status: 'pending',
     };
 
-    // Add to sender's outgoing requests
+    // Add to sender's outgoing requests state and persist locally
     setRequests((prev) => [...prev, newReq]);
 
-    // Place in recipient's requests inbox so the real user can review and accept when logged in
-    const targetRequests = getRequestsForUser(targetUser.username);
-    saveRequestsForUser(targetUser.username, [...targetRequests, newReq]);
+    // Send to Cloud Firestore so the recipient on their phone or PC gets notified in real time!
+    sendFriendRequestCloud(newReq).catch(console.error);
   };
 
   const handleAcceptRequest = (req: FriendRequest) => {
@@ -248,44 +280,17 @@ export default function App() {
       return [...prev, newFriend];
     });
 
-    // Also add current user to sender's friends list in their account storage!
-    const senderFriends = getFriendsForUser(req.fromUser);
-    if (!senderFriends.some((f) => f.username.toLowerCase() === userProfile.gamertag.toLowerCase())) {
-      senderFriends.push({
-        id: `friend-recip-${Date.now()}`,
-        username: userProfile.gamertag,
-        status: 'online',
-        avatarBg: '#00A2FF',
-        avatarPic: userProfile.gamerpic || MISSING_TEXTURE_DATA_URL,
-        addedAt: new Date().toISOString(),
-      });
-      saveFriendsForUser(req.fromUser, senderFriends);
-    }
-
-    // Remove pending request
+    // Remove pending request locally
     setRequests((prev) => prev.filter((r) => r.id !== req.id));
 
-    // Remove from recipient's storage
-    const remaining = getRequestsForUser(userProfile.gamertag).filter((r) => r.id !== req.id);
-    saveRequestsForUser(userProfile.gamertag, remaining);
+    // Commit friendship to Cloud Firestore for both players!
+    acceptFriendRequestCloud(req, userProfile).catch(console.error);
   };
 
   const handleDeclineRequest = (requestId: string) => {
     if (!userProfile) return;
-    const req = requests.find((r) => r.id === requestId);
     setRequests((prev) => prev.filter((r) => r.id !== requestId));
-
-    // Remove from both sender and recipient in storage
-    const currentRem = getRequestsForUser(userProfile.gamertag).filter((r) => r.id !== requestId);
-    saveRequestsForUser(userProfile.gamertag, currentRem);
-
-    if (req) {
-      const otherUser = req.fromUser.toLowerCase() === userProfile.gamertag.toLowerCase()
-        ? req.toUser
-        : req.fromUser;
-      const otherRem = getRequestsForUser(otherUser).filter((r) => r.id !== requestId);
-      saveRequestsForUser(otherUser, otherRem);
-    }
+    declineFriendRequestCloud(requestId).catch(console.error);
   };
 
   const handleRemoveFriend = (friendId: string) => {
@@ -295,9 +300,9 @@ export default function App() {
     // Remove from current user state
     setFriends((prev) => prev.filter((f) => f.id !== friendId));
 
-    // Remove bidirectionally from both accounts in persistent storage
+    // Remove bidirectionally from both accounts in persistent Cloud Firestore & local storage
     if (userProfile && !userProfile.isGuest) {
-      unfriendUsers(userProfile.gamertag, friendToRemove.username);
+      unfriendUsersAsync(userProfile.gamertag, friendToRemove.username).catch(console.error);
     }
   };
 
@@ -337,7 +342,7 @@ export default function App() {
   };
 
   // Tabs navigation
-  const tabList: NavTab[] = useMemo(() => ['HOME', 'GAMES', 'FRIENDS'], []);
+  const tabList: NavTab[] = useMemo(() => ['HOME', 'GAMES', 'STREAMS', 'FRIENDS'], []);
   const cycleTab = useCallback(
     (direction: 'left' | 'right') => {
       sounds.playBumper();
@@ -367,6 +372,8 @@ export default function App() {
         else if (friendBrowserOpen) setFriendBrowserOpen(false);
         else if (settingsOpen) setSettingsOpen(false);
         else if (tabCloakOpen) setTabCloakOpen(false);
+        else if (startStreamOpen) setStartStreamOpen(false);
+        else if (watchingStream) setWatchingStream(null);
         else if (activeGame) setActiveGame(null);
         else if (stealthActive) setStealthActive(false);
       }
@@ -374,7 +381,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [addGameOpen, friendBrowserOpen, settingsOpen, tabCloakOpen, activeGame, stealthActive]);
+  }, [addGameOpen, friendBrowserOpen, settingsOpen, tabCloakOpen, startStreamOpen, watchingStream, activeGame, stealthActive]);
 
   // If user is not signed in and has no saved session, show the SignInModal
   if (!userProfile) {
@@ -388,6 +395,47 @@ export default function App() {
 
       {/* Panic / Stealth Camouflage Screen */}
       {stealthActive && <StealthView onExit={() => setStealthActive(false)} />}
+
+      {/* Active Broadcaster Sticky Banner (If current user is streaming) */}
+      {myActiveStream && myActiveStream.status === 'live' && (
+        <div className="relative z-30 w-full bg-gradient-to-r from-red-600 via-rose-600 to-red-700 text-white px-6 py-2.5 shadow-2xl flex items-center justify-between animate-in slide-in-from-top duration-200">
+          <div className="flex items-center gap-3">
+            <span className="w-3 h-3 rounded-full bg-white animate-ping shrink-0" />
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-wider">
+                You Are LIVE:
+              </span>
+              <span className="text-xs font-bold truncate max-w-xs sm:max-w-md">
+                "{myActiveStream.title}"
+              </span>
+              <span className="text-[10px] font-extrabold bg-black/40 px-2 py-0.5 rounded-full uppercase hidden sm:inline">
+                {myActiveStream.visibility === 'friends' ? '👥 Friends Only' : '🌐 Public'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setWatchingStream(myActiveStream)}
+              className="px-3 py-1 bg-white hover:bg-slate-100 text-black text-xs font-black uppercase tracking-wider rounded-lg transition-colors cursor-pointer shadow"
+            >
+              Stream Room & Chat
+            </button>
+            <button
+              onClick={async () => {
+                if (confirm('End your live broadcast?')) {
+                  sounds.playExplosion();
+                  await endLiveStream(myActiveStream.id);
+                  setMyActiveStream(null);
+                }
+              }}
+              className="px-3 py-1 bg-black/50 hover:bg-black/70 text-white text-xs font-bold rounded-lg border border-white/30 transition-colors cursor-pointer"
+            >
+              End Stream
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Header Nav with Atlas Branding */}
       <HeaderNav
@@ -407,6 +455,11 @@ export default function App() {
         }}
         onOpenTabCloak={() => setTabCloakOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenStartStream={() => {
+          setStreamGameTarget(activeGame || null);
+          setStartStreamOpen(true);
+        }}
+        activeStreamsCount={activeStreams.length}
         cloakConfig={cloakConfig}
         onLogOut={handleLogOut}
         onPromptSignIn={handleLogOut}
@@ -419,7 +472,9 @@ export default function App() {
             games={games}
             friends={friends}
             userProfile={userProfile}
+            streams={activeStreams}
             onPlayGame={handlePlayGame}
+            onWatchStream={setWatchingStream}
             onOpenAddGame={() => setAddGameOpen(true)}
             onOpenAddFriend={() => {
               if (userProfile.isGuest) {
@@ -431,6 +486,7 @@ export default function App() {
             onOpenSettings={() => setSettingsOpen(true)}
             onViewAllGames={() => setCurrentTab('GAMES')}
             onViewAllFriends={() => setCurrentTab('FRIENDS')}
+            onViewAllStreams={() => setCurrentTab('STREAMS')}
             onPromptSignIn={handleLogOut}
           />
         )}
@@ -445,11 +501,25 @@ export default function App() {
           />
         )}
 
+        {currentTab === 'STREAMS' && (
+          <StreamsScreen
+            streams={activeStreams}
+            userProfile={userProfile}
+            onWatchStream={setWatchingStream}
+            onOpenStartStream={() => {
+              setStreamGameTarget(null);
+              setStartStreamOpen(true);
+            }}
+            onPromptSignIn={handleLogOut}
+          />
+        )}
+
         {currentTab === 'FRIENDS' && (
           <FriendsScreen
             friends={friends}
             games={games}
             requests={requests}
+            streams={activeStreams}
             onOpenAddFriend={() => {
               if (userProfile.isGuest) {
                 handleLogOut();
@@ -459,6 +529,7 @@ export default function App() {
             }}
             onRemoveFriend={handleRemoveFriend}
             onPlayGame={handlePlayGame}
+            onWatchStream={setWatchingStream}
             onAcceptRequest={handleAcceptRequest}
             onDeclineRequest={handleDeclineRequest}
             isGuest={userProfile.isGuest}
@@ -526,6 +597,41 @@ export default function App() {
           game={activeGame}
           onClose={() => setActiveGame(null)}
           onTriggerStealth={() => setStealthActive(true)}
+          onStartStream={(game) => {
+            setStreamGameTarget(game);
+            setStartStreamOpen(true);
+          }}
+        />
+      )}
+
+      {/* Start Stream Modal (Broadcast live to friends or online) */}
+      {startStreamOpen && (
+        <StartStreamModal
+          userProfile={userProfile}
+          currentGame={streamGameTarget || activeGame || null}
+          availableGames={games}
+          onStreamStarted={(newStream) => {
+            setMyActiveStream(newStream);
+            setWatchingStream(newStream);
+          }}
+          onClose={() => {
+            setStartStreamOpen(false);
+            setStreamGameTarget(null);
+          }}
+        />
+      )}
+
+      {/* Live Stream Player & Chat Modal (Twitch/YouTube style theater) */}
+      {watchingStream && (
+        <LiveStreamPlayerModal
+          stream={watchingStream}
+          currentUser={userProfile}
+          onClose={() => setWatchingStream(null)}
+          onStreamEnded={(endedId) => {
+            if (myActiveStream?.id === endedId) {
+              setMyActiveStream(null);
+            }
+          }}
         />
       )}
     </div>

@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
-import { CustomGame, Friend, UserProfile } from '../types';
-import { Plus, UserPlus, Play, Lock, AlertCircle, X, Settings } from 'lucide-react';
+import { CustomGame, Friend, UserProfile, LiveStream } from '../types';
+import { Plus, UserPlus, Play, Lock, AlertCircle, X, Settings, Radio, Eye, Gamepad2, Tv } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 
 interface HomeScreenProps {
   games: CustomGame[];
   friends: Friend[];
   userProfile: UserProfile;
+  streams?: LiveStream[];
   onPlayGame: (game: CustomGame) => void;
+  onWatchStream?: (stream: LiveStream) => void;
   onOpenAddGame: () => void;
   onOpenAddFriend: () => void;
   onOpenSettings: () => void;
   onViewAllGames: () => void;
   onViewAllFriends: () => void;
+  onViewAllStreams?: () => void;
   onPromptSignIn?: () => void;
 }
 
@@ -20,12 +23,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   games,
   friends,
   userProfile,
+  streams = [],
   onPlayGame,
+  onWatchStream,
   onOpenAddGame,
   onOpenAddFriend,
   onOpenSettings,
   onViewAllGames,
   onViewAllFriends,
+  onViewAllStreams,
   onPromptSignIn,
 }) => {
   const [guestNoticeOpen, setGuestNoticeOpen] = useState(false);
@@ -231,6 +237,62 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               )}
             </div>
           </div>
+
+          {/* Live Streams Section (Twitch style live broadcasts) */}
+          {streams.length > 0 && (
+            <div className="flex flex-col pt-2 border-t border-slate-800/80">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
+                  <Radio className="w-3.5 h-3.5 text-red-500 animate-pulse" />
+                  <span>LIVE BROADCASTS</span>
+                </h3>
+                {onViewAllStreams && (
+                  <button
+                    onClick={onViewAllStreams}
+                    className="text-xs text-red-400 hover:text-red-300 font-bold cursor-pointer"
+                  >
+                    View All ›
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {streams.slice(0, 2).map((s) => (
+                  <div
+                    key={s.id}
+                    onClick={() => {
+                      sounds.playLaunch();
+                      if (onWatchStream) onWatchStream(s);
+                    }}
+                    className="p-2.5 bg-[#171c2a] hover:bg-[#20273a] border border-slate-800 hover:border-red-500/50 rounded-xl transition-all cursor-pointer flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="relative w-8 h-8 rounded-lg overflow-hidden bg-slate-800 border border-red-500/60 shrink-0">
+                        <img src={s.streamerPic} alt="" className="w-full h-full object-cover" />
+                        <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-red-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                          <span className="truncate">{s.streamer}</span>
+                          <span className="text-[9px] bg-red-600 text-white font-extrabold px-1 rounded uppercase">
+                            LIVE
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-cyan-400 font-semibold truncate">
+                          {s.gameTitle}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 text-[10px] font-bold text-slate-300 bg-black/50 px-2 py-1 rounded shrink-0">
+                      <Eye className="w-3 h-3 text-red-400" />
+                      <span>{s.viewerCount || 1}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ================= COLUMN 2: RECENTLY PLAYED ================= */}

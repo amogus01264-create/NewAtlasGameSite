@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { Friend, CustomGame, FriendRequest } from '../types';
-import { UserPlus, UserX, Play, Users, Search, Lock, Check, Clock, AlertTriangle, X } from 'lucide-react';
+import { Friend, CustomGame, FriendRequest, LiveStream } from '../types';
+import { UserPlus, UserX, Play, Users, Search, Lock, Check, Clock, AlertTriangle, X, Radio } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 
 interface FriendsScreenProps {
   friends: Friend[];
   games: CustomGame[];
   requests?: FriendRequest[];
+  streams?: LiveStream[];
   onOpenAddFriend: () => void;
   onRemoveFriend: (id: string) => void;
   onPlayGame: (game: CustomGame) => void;
+  onWatchStream?: (stream: LiveStream) => void;
   onAcceptRequest?: (request: FriendRequest) => void;
   onDeclineRequest?: (requestId: string) => void;
   isGuest?: boolean;
@@ -20,9 +22,11 @@ export const FriendsScreen: React.FC<FriendsScreenProps> = ({
   friends,
   games,
   requests = [],
+  streams = [],
   onOpenAddFriend,
   onRemoveFriend,
   onPlayGame,
+  onWatchStream,
   onAcceptRequest,
   onDeclineRequest,
   isGuest,
@@ -301,6 +305,28 @@ export const FriendsScreen: React.FC<FriendsScreenProps> = ({
 
               {/* Action Buttons */}
               <div className="flex items-center gap-1.5">
+                {(() => {
+                  const activeStream = streams.find(
+                    (s) => s.streamer.toLowerCase() === friend.username.toLowerCase()
+                  );
+                  if (activeStream && onWatchStream) {
+                    return (
+                      <button
+                        onClick={() => {
+                          sounds.playLaunch();
+                          onWatchStream(activeStream);
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white shadow transition-all cursor-pointer flex items-center gap-1 text-xs font-bold animate-pulse"
+                        title={`Watch ${friend.username}'s Live Stream`}
+                      >
+                        <Radio className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Watch Stream</span>
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
+
                 {friend.status === 'playing' && (
                   <button
                     onClick={() => {

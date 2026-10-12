@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { CustomGame } from '../types';
-import { Maximize2, Minimize2, ArrowLeft, RefreshCw, ExternalLink, EyeOff, ShieldCheck, Zap, AlertCircle } from 'lucide-react';
+import { Maximize2, Minimize2, ArrowLeft, RefreshCw, ExternalLink, EyeOff, ShieldCheck, Zap, AlertCircle, Radio } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 
 interface GameRunnerModalProps {
   game: CustomGame;
   onClose: () => void;
   onTriggerStealth: () => void;
+  onStartStream?: (game: CustomGame) => void;
 }
 
 export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
   game,
   onClose,
   onTriggerStealth,
+  onStartStream,
 }) => {
   const [key, setKey] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -136,6 +138,21 @@ export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
           >
             <RefreshCw className="w-4 h-4" />
           </button>
+
+          {/* Go Live / Stream Game */}
+          {onStartStream && (
+            <button
+              onClick={() => {
+                sounds.playSelect();
+                onStartStream(game);
+              }}
+              className="px-2.5 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 hover:text-red-300 text-xs font-bold rounded-lg border border-red-500/50 transition-colors cursor-pointer hidden sm:flex items-center gap-1.5"
+              title="Stream this game to friends or public"
+            >
+              <Radio className="w-3.5 h-3.5 animate-pulse text-red-500" />
+              <span>Stream Game</span>
+            </button>
+          )}
 
           {/* Cloaked Tab (about:blank) */}
           <button

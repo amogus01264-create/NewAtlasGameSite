@@ -1,7 +1,7 @@
 import React from 'react';
 import { NavTab, UserProfile, TabCloakConfig } from '../types';
 import { AtlasLogo } from './AtlasLogo';
-import { Volume2, VolumeX, EyeOff, Plus, UserPlus, LogOut, Lock, Shield, Settings } from 'lucide-react';
+import { Volume2, VolumeX, EyeOff, Plus, UserPlus, LogOut, Lock, Shield, Settings, Radio } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 import { CLOAK_PRESETS } from '../services/tabCloak';
 
@@ -16,6 +16,8 @@ interface HeaderNavProps {
   onOpenAddFriend: () => void;
   onOpenTabCloak: () => void;
   onOpenSettings: () => void;
+  onOpenStartStream?: () => void;
+  activeStreamsCount?: number;
   cloakConfig: TabCloakConfig;
   onLogOut: () => void;
   onPromptSignIn?: () => void;
@@ -32,13 +34,16 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   onOpenAddFriend,
   onOpenTabCloak,
   onOpenSettings,
+  onOpenStartStream,
+  activeStreamsCount = 0,
   cloakConfig,
   onLogOut,
   onPromptSignIn,
 }) => {
-  const tabs: { key: NavTab; label: string }[] = [
+  const tabs: { key: NavTab; label: string; badge?: number }[] = [
     { key: 'HOME', label: 'HOME' },
     { key: 'GAMES', label: 'GAMES' },
+    { key: 'STREAMS', label: 'STREAMS', badge: activeStreamsCount },
     { key: 'FRIENDS', label: 'FRIENDS' },
   ];
 
@@ -76,6 +81,21 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
 
         {/* Right: Quick Actions */}
         <div className="flex items-center gap-3">
+          {/* Go Live / Start Stream Button */}
+          {onOpenStartStream && (
+            <button
+              onClick={() => {
+                sounds.playSelect();
+                onOpenStartStream();
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 border border-red-500/60 text-red-400 hover:text-red-300 text-xs font-bold rounded-lg transition-colors shadow-sm cursor-pointer"
+              title="Go Live: Stream your game to friends or public"
+            >
+              <Radio className="w-3.5 h-3.5 animate-pulse text-red-500" />
+              <span className="hidden sm:inline">Go Live</span>
+            </button>
+          )}
+
           {/* Add Game Button */}
           <button
             onClick={() => {
@@ -207,13 +227,19 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 sounds.playBumper();
                 onTabChange(tab.key);
               }}
-              className={`relative py-1 transition-colors uppercase cursor-pointer ${
+              className={`relative py-1 transition-colors uppercase cursor-pointer flex items-center gap-2 ${
                 isActive
                   ? 'text-white border-b-[3px] border-[#00A2FF]'
                   : 'text-[#1e88e5]/80 hover:text-white'
               }`}
             >
-              {tab.label}
+              <span>{tab.label}</span>
+              {tab.key === 'STREAMS' && tab.badge !== undefined && tab.badge > 0 && (
+                <span className="flex items-center gap-1 text-[10px] font-black px-1.5 py-0.2 rounded-full bg-red-600 text-white shadow-sm animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                  {tab.badge}
+                </span>
+              )}
             </button>
           );
         })}

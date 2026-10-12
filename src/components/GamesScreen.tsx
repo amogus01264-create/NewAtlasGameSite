@@ -234,7 +234,7 @@ export const GamesScreen: React.FC<GamesScreenProps> = ({
               Are you sure you want to remove all <strong className="text-white font-bold">{customGamesCount} custom added</strong> {customGamesCount === 1 ? 'game' : 'games'}?
               <br /><br />
               <span className="text-emerald-400 font-semibold">
-                Preset games (such as Geometry Dash WASM) will NOT be cleared or affected.
+                Preset games (such as Geometry Dash) will NOT be cleared or affected.
               </span>
             </p>
 

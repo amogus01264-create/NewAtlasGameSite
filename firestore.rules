@@ -1,0 +1,93 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Default-Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Helpers
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.]+$');
+    }
+
+    // Account Validation Helper
+    function isValidUserAccount(data) {
+      return data.username is string && data.username.size() >= 3 && data.username.size() <= 32
+        && data.password is string && data.password.size() >= 4 && data.password.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 64
+        && (!('gamerpic' in data) || (data.gamerpic is string && data.gamerpic.size() <= 5000000))
+        && (!('gender' in data) || (data.gender is string && data.gender.size() <= 16));
+    }
+
+    // Connection test document
+    match /test/{testId} {
+      allow read: if true;
+    }
+
+    // 3. Match Blocks
+    match /accounts/{username} {
+      allow get: if isValidId(username);
+      allow list: if true;
+      allow create: if isValidId(username)
+        && isValidUserAccount(incoming())
+        && incoming().username.lower() == username.lower();
+      allow update: if isValidId(username)
+        && isValidUserAccount(incoming())
+        && incoming().username.lower() == existing().username.lower();
+      allow delete: if false;
+    }
+
+    match /friends/{friendId} {
+      allow read: if isValidId(friendId);
+      allow create: if isValidId(friendId)
+        && incoming().ownerUsername is string && incoming().ownerUsername.size() <= 32
+        && incoming().username is string && incoming().username.size() <= 32;
+      allow update: if isValidId(friendId);
+      allow delete: if isValidId(friendId);
+    }
+
+    match /friendRequests/{requestId} {
+      allow read: if isValidId(requestId);
+      allow create: if isValidId(requestId)
+        && incoming().fromUser is string && incoming().fromUser.size() <= 32
+        && incoming().toUser is string && incoming().toUser.size() <= 32
+        && incoming().status in ['pending', 'accepted', 'declined'];
+      allow update: if isValidId(requestId)
+        && incoming().status in ['pending', 'accepted', 'declined'];
+      allow delete: if isValidId(requestId);
+    }
+
+    match /streams/{streamId} {
+      allow read: if isValidId(streamId);
+      allow create: if isValidId(streamId)
+        && incoming().streamer is string
+        && incoming().visibility in ['public', 'friends']
+        && incoming().status in ['live', 'ended'];
+      allow update: if isValidId(streamId);
+      allow delete: if isValidId(streamId);
+
+      match /messages/{messageId} {
+        allow read: if isValidId(messageId);
+        allow create: if isValidId(messageId)
+          && incoming().text is string && incoming().text.size() <= 500;
+        allow delete: if isValidId(messageId);
+      }
+
+      match /signals/{signalId} {
+        allow read: if isValidId(signalId);
+        allow create: if isValidId(signalId);
+        allow update: if isValidId(signalId);
+        allow delete: if isValidId(signalId);
+      }
+    }
+  }
+}

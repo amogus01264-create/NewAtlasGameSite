@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Friend, FriendRequest, NetworkUser, UserProfile } from '../types';
-import { getAllNetworkUsers, findNetworkUser } from '../services/userService';
-import { X, Search, UserPlus, Clock, Check, UserX, AlertCircle, ShieldAlert } from 'lucide-react';
+import { getAllNetworkUsers, getAllNetworkUsersAsync, findNetworkUserAsync } from '../services/userService';
+import { X, Search, UserPlus, Clock, Check, UserX, AlertCircle, ShieldAlert, Loader2 } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 
 interface FriendBrowserModalProps {
@@ -29,9 +29,31 @@ export const FriendBrowserModal: React.FC<FriendBrowserModalProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [directUsername, setDirectUsername] = useState('');
   const [directError, setDirectError] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
-  // All network users excluding self
-  const allUsers = getAllNetworkUsers(userProfile.gamertag);
+  // All network users excluding self (initial local + async cloud sync)
+  const [allUsers, setAllUsers] = useState<NetworkUser[]>(() =>
+    getAllNetworkUsers(userProfile.gamertag)
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    setIsLoadingUsers(true);
+    getAllNetworkUsersAsync(userProfile.gamertag)
+      .then((users) => {
+        if (mounted) {
+          setAllUsers(users);
+        }
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (mounted) setIsLoadingUsers(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [userProfile.gamertag]);
 
   // Filtered browse list
   const filteredUsers = allUsers.filter((u) =>
@@ -52,8 +74,9 @@ export const FriendBrowserModal: React.FC<FriendBrowserModalProps> = ({
   const hasPendingOutgoing = (username: string) =>
     outgoingRequests.some((r) => r.toUser.toLowerCase() === username.toLowerCase());
 
-  const handleDirectAdd = (e: React.FormEvent) => {
+  const handleDirectAdd = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSearching) return;
     setDirectError(null);
     const targetName = directUsername.trim();
 
@@ -77,18 +100,28 @@ export const FriendBrowserModal: React.FC<FriendBrowserModalProps> = ({
       return;
     }
 
-    // Verify user actually exists!
-    const targetUser = findNetworkUser(targetName);
-    if (!targetUser) {
-      setDirectError(`User "${targetName}" does not exist on the Atlas network.`);
-      sounds.playBack();
-      return;
-    }
+    setIsSearching(true);
+    try {
+      // Verify user actually exists in Cloud Firestore database!
+      const targetUser = await findNetworkUserAsync(targetName);
+      if (!targetUser) {
+        setDirectError(`User "${targetName}" does not exist on the Atlas network.`);
+        sounds.playBack();
+        setIsSearching(false);
+        return;
+      }
 
-    sounds.playSelect();
-    onSendRequest(targetUser);
-    setDirectUsername('');
-    setActiveTab('requests');
+      sounds.playSelect();
+      onSendRequest(targetUser);
+      setDirectUsername('');
+      setActiveTab('requests');
+    } catch (err) {
+      console.error('Direct add error:', err);
+      setDirectError('Failed to search player. Please try again.');
+      sounds.playBack();
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   return (
@@ -328,10 +361,20 @@ export const FriendBrowserModal: React.FC<FriendBrowserModalProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-2.5 bg-[#00A2FF] hover:bg-blue-600 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2"
+                disabled={isSearching}
+                className="w-full py-2.5 bg-[#00A2FF] hover:bg-blue-600 disabled:bg-blue-800 text-white text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
-                <UserPlus className="w-4 h-4" />
-                <span>Send Friend Request</span>
+                {isSearching ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Searching Atlas Network...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-4 h-4" />
+                    <span>Send Friend Request</span>
+                  </>
+                )}
               </button>
             </form>
           </div>

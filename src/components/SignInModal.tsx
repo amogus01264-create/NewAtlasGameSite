@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { UserProfile, RegisteredAccount } from '../types';
 import { AtlasLogo } from './AtlasLogo';
-import { Upload, ChevronDown, AlertCircle, CheckCircle2, User, KeyRound, Sparkles } from 'lucide-react';
+import { Upload, ChevronDown, AlertCircle, CheckCircle2, User, KeyRound, Sparkles, Loader2 } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
 import {
   getRegisteredAccounts,
-  registerAccount,
-  authenticateUser,
+  registerAccountAsync,
+  authenticateUserAsync,
   saveSession,
 } from '../services/userService';
 
@@ -26,6 +26,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
   const [customImage, setCustomImage] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // List of saved registered accounts on this device
@@ -73,8 +74,9 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setErrorMessage(null);
 
     const cleanUsername = username.trim();
@@ -96,65 +98,77 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
       return;
     }
 
-    if (isLoginMode) {
-      // LOG IN MODE: Authenticate user
-      const authResult = authenticateUser(cleanUsername, password);
-      if (!authResult.success || !authResult.account) {
-        setErrorMessage(authResult.error || 'Login failed.');
-        sounds.playBack();
-        return;
-      }
+    setIsSubmitting(true);
 
-      const profile: UserProfile = {
-        gamertag: authResult.account.username,
-        gamerpic: authResult.account.gamerpic || MISSING_TEXTURE_DATA_URL,
-        isGuest: false,
-        rememberMe,
-      };
+    try {
+      if (isLoginMode) {
+        // LOG IN MODE: Authenticate user in Cloud Database
+        const authResult = await authenticateUserAsync(cleanUsername, password);
+        if (!authResult.success || !authResult.account) {
+          setErrorMessage(authResult.error || 'Login failed.');
+          sounds.playBack();
+          setIsSubmitting(false);
+          return;
+        }
 
-      if (rememberMe) {
-        saveSession(profile);
+        const profile: UserProfile = {
+          gamertag: authResult.account.username,
+          gamerpic: authResult.account.gamerpic || MISSING_TEXTURE_DATA_URL,
+          isGuest: false,
+          rememberMe,
+        };
+
+        if (rememberMe) {
+          saveSession(profile);
+        } else {
+          saveSession(null);
+        }
+
+        sounds.playLaunch();
+        onSignIn(profile);
       } else {
-        saveSession(null);
+        // SIGN UP MODE: Check uniqueness & register in Cloud Database
+        const finalPic = customImage || MISSING_TEXTURE_DATA_URL;
+
+        const newAccount: RegisteredAccount = {
+          username: cleanUsername,
+          password,
+          gamerpic: finalPic,
+          birthday: month !== 'Month' ? { month, day, year } : undefined,
+          gender,
+          createdAt: new Date().toISOString(),
+        };
+
+        const regResult = await registerAccountAsync(newAccount);
+        if (!regResult.success) {
+          setErrorMessage(regResult.error || 'Registration failed.');
+          sounds.playBack();
+          setIsSubmitting(false);
+          return;
+        }
+
+        const profile: UserProfile = {
+          gamertag: cleanUsername,
+          gamerpic: finalPic,
+          isGuest: false,
+          rememberMe,
+        };
+
+        if (rememberMe) {
+          saveSession(profile);
+        } else {
+          saveSession(null);
+        }
+
+        sounds.playLaunch();
+        onSignIn(profile);
       }
-
-      sounds.playLaunch();
-      onSignIn(profile);
-    } else {
-      // SIGN UP MODE: Check uniqueness & register
-      const finalPic = customImage || MISSING_TEXTURE_DATA_URL;
-
-      const newAccount: RegisteredAccount = {
-        username: cleanUsername,
-        password,
-        gamerpic: finalPic,
-        birthday: month !== 'Month' ? { month, day, year } : undefined,
-        gender,
-        createdAt: new Date().toISOString(),
-      };
-
-      const regResult = registerAccount(newAccount);
-      if (!regResult.success) {
-        setErrorMessage(regResult.error || 'Registration failed.');
-        sounds.playBack();
-        return;
-      }
-
-      const profile: UserProfile = {
-        gamertag: cleanUsername,
-        gamerpic: finalPic,
-        isGuest: false,
-        rememberMe,
-      };
-
-      if (rememberMe) {
-        saveSession(profile);
-      } else {
-        saveSession(null);
-      }
-
-      sounds.playLaunch();
-      onSignIn(profile);
+    } catch (err: any) {
+      console.error('Submit error:', err);
+      setErrorMessage('Network connection error. Please try again.');
+      sounds.playBack();
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -469,9 +483,17 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
             {/* Big White Submit Button */}
             <button
               type="submit"
-              className="w-full py-3 bg-white hover:bg-slate-100 text-black text-sm font-black uppercase rounded-lg shadow-xl transition-all active:scale-98 cursor-pointer mt-2"
+              disabled={isSubmitting}
+              className="w-full py-3 bg-white hover:bg-slate-100 disabled:bg-slate-300 text-black text-sm font-black uppercase rounded-lg shadow-xl transition-all active:scale-98 cursor-pointer disabled:cursor-not-allowed mt-2 flex items-center justify-center gap-2"
             >
-              {isLoginMode ? 'Log In' : 'Sign Up'}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-black" />
+                  <span>{isLoginMode ? 'Signing In...' : 'Creating Account...'}</span>
+                </>
+              ) : (
+                <span>{isLoginMode ? 'Log In' : 'Sign Up'}</span>
+              )}
             </button>
           </form>
 

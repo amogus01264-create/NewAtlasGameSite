@@ -43,7 +43,30 @@ export interface NetworkUser {
   isRegisteredUser?: boolean;
 }
 
-export type NavTab = 'HOME' | 'GAMES' | 'FRIENDS' | 'SETTINGS';
+export type NavTab = 'HOME' | 'GAMES' | 'STREAMS' | 'FRIENDS' | 'SETTINGS';
+
+export interface LiveStream {
+  id: string;
+  streamer: string;
+  streamerPic?: string;
+  title: string;
+  gameTitle: string;
+  gameId?: string;
+  visibility: 'public' | 'friends';
+  status: 'live' | 'ended';
+  startedAt: string;
+  viewerCount: number;
+  previewFrame?: string;
+}
+
+export interface StreamMessage {
+  id: string;
+  streamId: string;
+  sender: string;
+  senderPic?: string;
+  text: string;
+  timestamp: string;
+}
 
 export interface UserProfile {
   gamertag: string;
