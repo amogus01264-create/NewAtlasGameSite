@@ -49,6 +49,32 @@ export const PRESET_GAMES: CustomGame[] = [
     launchMode: 'direct',
     isPreset: true,
   },
+  {
+    id: 'game-portal2',
+    title: 'Portal 2',
+    url: 'https://truffled.lol/games/portal2/portal2/index.html',
+    thumbnail: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=600&auto=format&fit=crop&q=80',
+    genre: 'Puzzle',
+    description: 'Break the laws of spatial physics with your handheld portal device in Aperture Science.',
+    addedAt: '2026-10-11T00:00:00.000Z',
+    playedCount: 0,
+    favorite: true,
+    launchMode: 'direct',
+    isPreset: true,
+  },
+  {
+    id: 'game-boir',
+    title: 'The Binding of Isaac: Rebirth',
+    url: 'https://truffled.lol/games/boir/index.html',
+    thumbnail: 'https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?w=600&auto=format&fit=crop&q=80',
+    genre: 'Roguelike',
+    description: 'A randomly generated action RPG shooter with heavy roguelike dungeon elements.',
+    addedAt: '2026-10-11T00:00:00.000Z',
+    playedCount: 0,
+    favorite: true,
+    launchMode: 'direct',
+    isPreset: true,
+  },
 ];
 
 export const isGamePreset = (game: CustomGame): boolean => {
@@ -111,7 +137,18 @@ export default function App() {
           );
           // Normalize preset games with isPreset: true and current title
           const normalized = filtered.map((g) => {
-            if (isGamePreset(g) || g.id === 'game-geo' || g.title === 'Geometry Dash WASM') {
+            const matched = PRESET_GAMES.find(
+              (p) => p.id === g.id || p.url?.toLowerCase() === g.url?.toLowerCase()
+            );
+            if (matched) {
+              return {
+                ...matched,
+                playedCount: g.playedCount ?? matched.playedCount,
+                favorite: g.favorite ?? matched.favorite,
+                lastPlayed: g.lastPlayed,
+              };
+            }
+            if (g.id === 'game-geo' || g.title === 'Geometry Dash WASM') {
               return { ...g, title: 'Geometry Dash', isPreset: true };
             }
             return g;
@@ -122,7 +159,7 @@ export default function App() {
               (g) => g.id === preset.id || g.url?.toLowerCase() === preset.url.toLowerCase()
             );
             if (!exists) {
-              normalized.unshift(preset);
+              normalized.push(preset);
             }
           }
           localStorage.setItem('atlas_custom_games', JSON.stringify(normalized));
