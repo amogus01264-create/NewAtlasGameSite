@@ -14,6 +14,7 @@ interface SettingsModalProps {
   onOpenFullCloak: () => void;
   onClearCustomGames: () => void;
   onResetData: () => void;
+  onDeleteAccount?: (username: string) => Promise<void> | void;
   onOpenSafetyModal?: () => void;
   onClose: () => void;
 }
@@ -28,10 +29,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenFullCloak,
   onClearCustomGames,
   onResetData,
+  onDeleteAccount,
   onOpenSafetyModal,
   onClose,
 }) => {
   const [gamertag, setGamertag] = useState(userProfile.gamertag);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSaveGamertag = (e: React.FormEvent) => {
@@ -287,6 +291,72 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>Reset</span>
             </button>
           </div>
+
+          {/* Delete Account (Registered Users) */}
+          {!userProfile.isGuest && onDeleteAccount && (
+            <div className="p-4 bg-[#23171c] rounded-xl border border-red-800/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-red-300 flex items-center gap-2">
+                    <Trash2 className="w-4 h-4 text-red-400" />
+                    <span>Delete Account</span>
+                    <span className="text-[10px] bg-red-950 px-1.5 py-0.5 rounded border border-red-700/60 text-red-400 font-bold uppercase">
+                      Permanent
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    Permanently delete account <strong className="text-slate-200">@{userProfile.gamertag}</strong> from the Atlas cloud network, remove all friends, and wipe saved login data.
+                  </div>
+                </div>
+
+                {!confirmDeleteOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteOpen(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0 shadow-lg"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Account</span>
+                  </button>
+                )}
+              </div>
+
+              {confirmDeleteOpen && (
+                <div className="p-3 bg-red-950/80 rounded-lg border border-red-700/80 space-y-2">
+                  <p className="text-xs text-red-200 font-semibold">
+                    Are you sure you want to delete your account? This action cannot be reversed.
+                  </p>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={isDeletingAccount}
+                      onClick={() => setConfirmDeleteOpen(false)}
+                      className="px-3 py-1 bg-[#1e2332] text-slate-300 hover:text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isDeletingAccount}
+                      onClick={async () => {
+                        setIsDeletingAccount(true);
+                        try {
+                          await onDeleteAccount(userProfile.gamertag);
+                        } finally {
+                          setIsDeletingAccount(false);
+                          setConfirmDeleteOpen(false);
+                        }
+                      }}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>{isDeletingAccount ? 'Deleting...' : 'Yes, Delete My Account'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Teacher & School IT Safety Verification */}
           {onOpenSafetyModal && (

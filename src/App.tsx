@@ -36,6 +36,7 @@ import {
   unfriendUsersAsync,
   unfriendUsers,
   clearLocalAccountsCache,
+  deleteAccountAsync,
 } from './services/userService';
 
 export const PRESET_GAMES: CustomGame[] = [
@@ -243,6 +244,13 @@ export default function App() {
     setUserProfile(null);
     saveSession(null);
     sounds.playBack();
+  };
+
+  const handleDeleteAccount = async (username: string) => {
+    sounds.playExplosion();
+    await deleteAccountAsync(username);
+    setUserProfile(null);
+    setSettingsOpen(false);
   };
 
   // Actions: Games
@@ -623,6 +631,7 @@ export default function App() {
           }}
           onClearCustomGames={handleClearCustomGames}
           onResetData={handleResetData}
+          onDeleteAccount={handleDeleteAccount}
           onOpenSafetyModal={() => setSafetyModalOpen(true)}
           onClose={() => setSettingsOpen(false)}
         />

@@ -21,6 +21,7 @@ const STORAGE_SESSION_KEY = 'atlas_saved_session';
 // --- Local Storage Helpers (Cache & Offline Support) ---
 export const getRegisteredAccounts = (): RegisteredAccount[] => {
   try {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
     const raw = localStorage.getItem(STORAGE_ACCOUNTS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
@@ -30,8 +31,10 @@ export const getRegisteredAccounts = (): RegisteredAccount[] => {
 
 export const clearLocalAccountsCache = () => {
   try {
-    localStorage.removeItem(STORAGE_ACCOUNTS_KEY);
-    localStorage.removeItem(STORAGE_SESSION_KEY);
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_ACCOUNTS_KEY);
+      localStorage.removeItem(STORAGE_SESSION_KEY);
+    }
   } catch {
     // ignore
   }
@@ -39,6 +42,7 @@ export const clearLocalAccountsCache = () => {
 
 const cacheAccountLocally = (account: RegisteredAccount) => {
   try {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
     const current = getRegisteredAccounts();
     const clean = account.username.toLowerCase();
     const updated = current.filter((a) => a.username.toLowerCase() !== clean);
@@ -71,8 +75,37 @@ export const registerAccountAsync = async (
   const clean = account.username.trim();
   const cleanLower = clean.toLowerCase();
 
-  if (clean.length < 3) {
-    return { success: false, error: 'Username must be at least 3 characters long.' };
+  // Validate username: 3-20 characters, letters, numbers, underscores, dashes only
+  if (clean.length < 3 || clean.length > 20) {
+    return { success: false, error: 'Username must be between 3 and 20 characters.' };
+  }
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(clean)) {
+    return {
+      success: false,
+      error: 'Username can only contain letters, numbers, underscores, and dashes (no spaces).',
+    };
+  }
+
+  // Validate password
+  if (!account.password || account.password.length < 4) {
+    return { success: false, error: 'Password must be at least 4 characters long.' };
+  }
+
+  // Validate birthday - REQUIRED
+  if (
+    !account.birthday ||
+    !account.birthday.month ||
+    account.birthday.month === 'Month' ||
+    !account.birthday.day ||
+    account.birthday.day === 'Day' ||
+    !account.birthday.year ||
+    account.birthday.year === 'Year'
+  ) {
+    return {
+      success: false,
+      error: 'Birthday is required. Please select your Month, Day, and Year.',
+    };
   }
 
   try {
@@ -87,7 +120,11 @@ export const registerAccountAsync = async (
       username: clean,
       password: account.password,
       gamerpic: account.gamerpic || MISSING_TEXTURE_DATA_URL,
-      birthday: account.birthday,
+      birthday: {
+        month: account.birthday.month,
+        day: account.birthday.day,
+        year: account.birthday.year,
+      },
       gender: account.gender || null,
       createdAt: account.createdAt || new Date().toISOString(),
     };
@@ -97,14 +134,128 @@ export const registerAccountAsync = async (
     return { success: true };
   } catch (err: any) {
     console.error('Cloud registration error:', err);
-    // Fallback to local if network fails
-    const local = getRegisteredAccounts();
-    if (local.some((a) => a.username.toLowerCase() === cleanLower)) {
-      return { success: false, error: 'Username is already taken by another player.' };
+    return {
+      success: false,
+      error: err?.message || 'Failed to register account on the Atlas network.',
+    };
+  }
+};
+
+/**
+ * Permanently deletes an account from Cloud Firestore, cleans up all friendship
+ * links, friend requests, and clears local cached credentials.
+ */
+export const deleteAccountAsync = async (
+  username: string
+): Promise<{ success: boolean; error?: string }> => {
+  const clean = username.trim();
+  const cleanLower = clean.toLowerCase();
+  if (!cleanLower) return { success: false, error: 'Invalid username.' };
+
+  try {
+    // 1. Delete account document from Cloud Firestore
+    const accountRef = doc(db, 'accounts', cleanLower);
+    await deleteDoc(accountRef).catch((e) => console.warn('Cloud account delete doc error:', e));
+
+    // 2. Clean up friends records where this user is the owner
+    const friendsCol = collection(db, 'friends');
+    const qFriendsOwner = query(friendsCol, where('ownerUsername', '==', cleanLower));
+    const snapFriendsOwner = await getDocs(qFriendsOwner).catch(() => null);
+    if (snapFriendsOwner) {
+      for (const d of snapFriendsOwner.docs) {
+        await deleteDoc(d.ref).catch(() => null);
+      }
     }
-    local.push({ ...account, username: clean });
-    localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(local));
+
+    // 3. Clean up friends records where this user was added by others
+    const qFriendsOthers = query(friendsCol, where('username', '==', clean));
+    const snapFriendsOthers = await getDocs(qFriendsOthers).catch(() => null);
+    if (snapFriendsOthers) {
+      for (const d of snapFriendsOthers.docs) {
+        await deleteDoc(d.ref).catch(() => null);
+      }
+    }
+
+    // 4. Clean up friend requests where this user is the recipient or sender
+    const reqCol = collection(db, 'friendRequests');
+    const qReqTo = query(reqCol, where('toUser', '==', cleanLower));
+    const snapReqTo = await getDocs(qReqTo).catch(() => null);
+    if (snapReqTo) {
+      for (const d of snapReqTo.docs) {
+        await deleteDoc(d.ref).catch(() => null);
+      }
+    }
+
+    const qReqFrom = query(reqCol, where('fromUser', '==', cleanLower));
+    const snapReqFrom = await getDocs(qReqFrom).catch(() => null);
+    if (snapReqFrom) {
+      for (const d of snapReqFrom.docs) {
+        await deleteDoc(d.ref).catch(() => null);
+      }
+    }
+
+    // 5. Clean up local storage
+    try {
+      if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+        const local = getRegisteredAccounts().filter((a) => a.username.toLowerCase() !== cleanLower);
+        localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(local));
+
+        const session = getSavedSession();
+        if (session && session.gamertag.toLowerCase() === cleanLower) {
+          saveSession(null);
+        }
+
+        localStorage.removeItem(`atlas_friends_${cleanLower}`);
+        localStorage.removeItem(`atlas_requests_${cleanLower}`);
+      }
+    } catch {
+      // ignore local storage errors
+    }
+
     return { success: true };
+  } catch (err: any) {
+    console.error('deleteAccountAsync error:', err);
+    return { success: false, error: err?.message || 'Failed to delete account.' };
+  }
+};
+
+/**
+ * Purges all test accounts, friends links, and requests from Cloud Firestore
+ * and local storage (fulfills user request to wipe test accounts).
+ */
+export const deleteAllAccountsAsync = async (): Promise<{ success: boolean; count: number }> => {
+  let count = 0;
+  try {
+    const accSnap = await getDocs(collection(db, 'accounts')).catch(() => null);
+    if (accSnap) {
+      for (const d of accSnap.docs) {
+        await deleteDoc(d.ref).catch(() => null);
+        count++;
+      }
+    }
+
+    const friendsSnap = await getDocs(collection(db, 'friends')).catch(() => null);
+    if (friendsSnap) {
+      for (const d of friendsSnap.docs) {
+        await deleteDoc(d.ref).catch(() => null);
+      }
+    }
+
+    const reqSnap = await getDocs(collection(db, 'friendRequests')).catch(() => null);
+    if (reqSnap) {
+      for (const d of reqSnap.docs) {
+        await deleteDoc(d.ref).catch(() => null);
+      }
+    }
+
+    clearLocalAccountsCache();
+    saveSession(null);
+    return { success: true, count };
+  } catch (err) {
+    console.error('deleteAllAccountsAsync error:', err);
+    clearLocalAccountsCache();
+    saveSession(null);
+    return { success: true, count };
   }
 };
 
@@ -199,10 +350,16 @@ export const getSavedSession = (): UserProfile | null => {
 };
 
 export const saveSession = (profile: UserProfile | null) => {
-  if (profile) {
-    localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(profile));
-  } else {
-    localStorage.removeItem(STORAGE_SESSION_KEY);
+  try {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      if (profile) {
+        localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(profile));
+      } else {
+        localStorage.removeItem(STORAGE_SESSION_KEY);
+      }
+    }
+  } catch {
+    // ignore
   }
 };
 
@@ -307,6 +464,7 @@ export const findNetworkUser = (username: string): NetworkUser | null => {
 export const getFriendsForUser = (username: string): Friend[] => {
   if (!username) return [];
   try {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
     const raw = localStorage.getItem(`atlas_friends_${username.trim().toLowerCase()}`);
     return raw ? JSON.parse(raw) : [];
   } catch {
@@ -316,12 +474,19 @@ export const getFriendsForUser = (username: string): Friend[] => {
 
 export const saveFriendsForUser = (username: string, friends: Friend[]) => {
   if (!username) return;
-  localStorage.setItem(`atlas_friends_${username.trim().toLowerCase()}`, JSON.stringify(friends));
+  try {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      localStorage.setItem(`atlas_friends_${username.trim().toLowerCase()}`, JSON.stringify(friends));
+    }
+  } catch {
+    // ignore
+  }
 };
 
 export const getRequestsForUser = (username: string): FriendRequest[] => {
   if (!username) return [];
   try {
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
     const raw = localStorage.getItem(`atlas_requests_${username.trim().toLowerCase()}`);
     return raw ? JSON.parse(raw) : [];
   } catch {
@@ -331,7 +496,13 @@ export const getRequestsForUser = (username: string): FriendRequest[] => {
 
 export const saveRequestsForUser = (username: string, requests: FriendRequest[]) => {
   if (!username) return;
-  localStorage.setItem(`atlas_requests_${username.trim().toLowerCase()}`, JSON.stringify(requests));
+  try {
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      localStorage.setItem(`atlas_requests_${username.trim().toLowerCase()}`, JSON.stringify(requests));
+    }
+  } catch {
+    // ignore
+  }
 };
 
 // Realtime subscription to friends
@@ -382,35 +553,72 @@ export const subscribeToRequests = (
   const cleanLower = username.trim().toLowerCase();
 
   const reqCol = collection(db, 'friendRequests');
-  // Listen to requests directed to this user
   const qIncoming = query(reqCol, where('toUser', '==', cleanLower));
+  const qOutgoing = query(reqCol, where('fromUser', '==', cleanLower));
 
-  const unsubscribe = onSnapshot(
+  let incomingList: FriendRequest[] = [];
+  let outgoingList: FriendRequest[] = [];
+
+  const mergeAndNotify = () => {
+    const map = new Map<string, FriendRequest>();
+    for (const r of incomingList) map.set(r.id, r);
+    for (const r of outgoingList) map.set(r.id, r);
+    const combined = Array.from(map.values());
+    saveRequestsForUser(username, combined);
+    onUpdate(combined);
+  };
+
+  const unsubIncoming = onSnapshot(
     qIncoming,
     (snapshot) => {
-      const list: FriendRequest[] = [];
+      incomingList = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        list.push({
+        incomingList.push({
           id: docSnap.id,
           fromUser: data.fromUser,
           toUser: data.toUser,
           fromPic: data.fromPic || MISSING_TEXTURE_DATA_URL,
-          toPic: data.toPic,
+          toPic: data.toPic || '',
           timestamp: data.timestamp || new Date().toISOString(),
           status: data.status || 'pending',
         });
       });
-      saveRequestsForUser(username, list);
-      onUpdate(list);
+      mergeAndNotify();
     },
     (err) => {
-      console.warn('subscribeToRequests listener error:', err);
+      console.warn('subscribeToRequests incoming listener error:', err);
       onUpdate(getRequestsForUser(username));
     }
   );
 
-  return unsubscribe;
+  const unsubOutgoing = onSnapshot(
+    qOutgoing,
+    (snapshot) => {
+      outgoingList = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        outgoingList.push({
+          id: docSnap.id,
+          fromUser: data.fromUser,
+          toUser: data.toUser,
+          fromPic: data.fromPic || MISSING_TEXTURE_DATA_URL,
+          toPic: data.toPic || '',
+          timestamp: data.timestamp || new Date().toISOString(),
+          status: data.status || 'pending',
+        });
+      });
+      mergeAndNotify();
+    },
+    (err) => {
+      console.warn('subscribeToRequests outgoing listener error:', err);
+    }
+  );
+
+  return () => {
+    unsubIncoming();
+    unsubOutgoing();
+  };
 };
 
 // Send Friend Request in Firestore
@@ -436,8 +644,10 @@ export const acceptFriendRequestCloud = async (
   const userB = req.fromUser.trim().toLowerCase();
 
   // Create friend record for user A
-  const friendRefA = doc(db, 'friends', `${userA}_${userB}`);
+  const friendIdA = `${userA}_${userB}`;
+  const friendRefA = doc(db, 'friends', friendIdA);
   await setDoc(friendRefA, {
+    id: friendIdA,
     ownerUsername: userA,
     username: req.fromUser,
     status: 'online',
@@ -447,8 +657,10 @@ export const acceptFriendRequestCloud = async (
   });
 
   // Create reciprocal friend record for user B
-  const friendRefB = doc(db, 'friends', `${userB}_${userA}`);
+  const friendIdB = `${userB}_${userA}`;
+  const friendRefB = doc(db, 'friends', friendIdB);
   await setDoc(friendRefB, {
+    id: friendIdB,
     ownerUsername: userB,
     username: currentUser.gamertag,
     status: 'online',

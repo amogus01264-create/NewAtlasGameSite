@@ -9,9 +9,19 @@
         "password": { "type": "string", "description": "Account password" },
         "gamerpic": { "type": "string", "description": "Avatar data URL or image link" },
         "createdAt": { "type": "string", "description": "Timestamp of account creation" },
-        "gender": { "type": "string", "description": "User gender if provided" }
+        "gender": { "type": "string", "description": "User gender if provided" },
+        "birthday": {
+          "type": "object",
+          "description": "User birthday details",
+          "properties": {
+            "month": { "type": "string", "description": "Birth month" },
+            "day": { "type": "string", "description": "Birth day" },
+            "year": { "type": "string", "description": "Birth year" }
+          },
+          "required": ["month", "day", "year"]
+        }
       },
-      "required": ["username", "password", "createdAt"]
+      "required": ["username", "password", "createdAt", "birthday"]
     },
     "Friend": {
       "title": "Friend",

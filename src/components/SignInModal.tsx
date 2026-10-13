@@ -1,13 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { UserProfile, RegisteredAccount } from '../types';
 import { AtlasLogo } from './AtlasLogo';
-import { Upload, ChevronDown, AlertCircle, CheckCircle2, User, KeyRound, Sparkles, Loader2 } from 'lucide-react';
+import { Upload, ChevronDown, AlertCircle, CheckCircle2, User, KeyRound, Sparkles, Loader2, Trash2, X } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
 import {
   getRegisteredAccounts,
   registerAccountAsync,
   authenticateUserAsync,
+  deleteAccountAsync,
+  deleteAllAccountsAsync,
   saveSession,
 } from '../services/userService';
 
@@ -26,7 +28,11 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
   const [customImage, setCustomImage] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [accountToDelete, setAccountToDelete] = useState<RegisteredAccount | null>(null);
+  const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // List of saved registered accounts on this device
@@ -74,28 +80,87 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
     }
   };
 
+  const handleDeleteAccount = async (account: RegisteredAccount) => {
+    setIsDeleting(true);
+    setErrorMessage(null);
+    setSuccessNotice(null);
+    try {
+      const res = await deleteAccountAsync(account.username);
+      if (res.success) {
+        sounds.playExplosion();
+        setSavedAccounts(getRegisteredAccounts());
+        setSuccessNotice(`Account "${account.username}" was permanently deleted.`);
+        setAccountToDelete(null);
+      } else {
+        setErrorMessage(res.error || 'Failed to delete account.');
+        sounds.playBack();
+      }
+    } catch (err: any) {
+      console.error('Delete account error:', err);
+      setErrorMessage(err?.message || 'Failed to delete account.');
+      sounds.playBack();
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handlePurgeAllTestAccounts = async () => {
+    setIsDeleting(true);
+    setErrorMessage(null);
+    setSuccessNotice(null);
+    try {
+      const res = await deleteAllAccountsAsync();
+      sounds.playExplosion();
+      setSavedAccounts([]);
+      setSuccessNotice(`All test accounts were deleted (${res.count} network records removed).`);
+      setShowPurgeConfirm(false);
+    } catch (err: any) {
+      console.error('Purge error:', err);
+      setErrorMessage('Failed to purge accounts.');
+      sounds.playBack();
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (isSubmitting || isDeleting) return;
     setErrorMessage(null);
+    setSuccessNotice(null);
 
     const cleanUsername = username.trim();
     if (!cleanUsername) {
-      setErrorMessage('Please enter a username.');
+      setErrorMessage('Username is required.');
       sounds.playBack();
       return;
     }
 
-    if (cleanUsername.length < 3) {
-      setErrorMessage('Username must be at least 3 characters.');
+    if (cleanUsername.length < 3 || cleanUsername.length > 20) {
+      setErrorMessage('Username must be between 3 and 20 characters.');
       sounds.playBack();
       return;
     }
 
-    if (password.length < 4) {
-      setErrorMessage('Password must be at least 4 characters.');
+    if (!/^[a-zA-Z0-9_-]+$/.test(cleanUsername)) {
+      setErrorMessage('Username can only contain letters, numbers, underscores, and dashes (no spaces).');
       sounds.playBack();
       return;
+    }
+
+    if (!password || password.length < 4) {
+      setErrorMessage('Password is required and must be at least 4 characters.');
+      sounds.playBack();
+      return;
+    }
+
+    // Sign Up Mode: B-Day is mandatory ("all sections of sign up must be filled besides gender")
+    if (!isLoginMode) {
+      if (month === 'Month' || day === 'Day' || year === 'Year') {
+        setErrorMessage('Birthday is required. Please select your Month, Day, and Year.');
+        sounds.playBack();
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -134,8 +199,8 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
           username: cleanUsername,
           password,
           gamerpic: finalPic,
-          birthday: month !== 'Month' ? { month, day, year } : undefined,
-          gender,
+          birthday: { month, day, year },
+          gender: gender || null,
           createdAt: new Date().toISOString(),
         };
 
@@ -165,7 +230,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
       }
     } catch (err: any) {
       console.error('Submit error:', err);
-      setErrorMessage('Network connection error. Please try again.');
+      setErrorMessage(err?.message || 'Network connection error. Please try again.');
       sounds.playBack();
     } finally {
       setIsSubmitting(false);
@@ -253,27 +318,11 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
             {isLoginMode ? 'LOG IN TO ATLAS' : 'SIGN UP AND START HAVING FUN!'}
           </h2>
 
-          {/* Quick Saved Accounts Selector */}
-          {savedAccounts.length > 0 && isLoginMode && (
-            <div className="mb-4 p-2.5 bg-[#17191e] rounded-xl border border-slate-700/60">
-              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">
-                Saved Accounts on this Device:
-              </span>
-              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                {savedAccounts.map((acc) => (
-                  <button
-                    key={acc.username}
-                    type="button"
-                    onClick={() => handleQuickAccountPick(acc)}
-                    className="flex items-center gap-2 px-2.5 py-1.5 bg-[#252a36] hover:bg-[#30384a] rounded-lg border border-slate-700 text-xs text-white shrink-0 cursor-pointer transition-colors"
-                  >
-                    <div className="w-4 h-4 rounded-full overflow-hidden bg-black shrink-0">
-                      <img src={acc.gamerpic} alt="" className="w-full h-full object-cover" />
-                    </div>
-                    <span className="font-bold truncate max-w-[90px]">{acc.username}</span>
-                  </button>
-                ))}
-              </div>
+          {/* Success Message */}
+          {successNotice && (
+            <div className="mb-4 p-3 bg-emerald-950/60 border border-emerald-700/60 rounded-xl flex items-center gap-2.5 text-emerald-300 text-xs">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+              <span>{successNotice}</span>
             </div>
           )}
 
@@ -285,13 +334,150 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
             </div>
           )}
 
+          {/* Quick Saved Accounts Selector & Deletion Controls */}
+          {savedAccounts.length > 0 && (
+            <div className="mb-4 p-3 bg-[#17191e] rounded-xl border border-slate-700/60">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] uppercase font-bold text-slate-400">
+                  Saved Accounts on this Device ({savedAccounts.length}):
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowPurgeConfirm(true)}
+                  className="text-[10px] text-red-400 hover:text-red-300 font-bold cursor-pointer flex items-center gap-1 transition-colors"
+                  title="Purge all test accounts from network and device"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Delete All Test Accounts</span>
+                </button>
+              </div>
+
+              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {savedAccounts.map((acc) => (
+                  <div
+                    key={acc.username}
+                    className="flex items-center bg-[#252a36] rounded-lg border border-slate-700 overflow-hidden shrink-0 group"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleQuickAccountPick(acc)}
+                      className="flex items-center gap-2 px-2.5 py-1.5 hover:bg-[#30384a] text-xs text-white cursor-pointer transition-colors"
+                      title={`Click to log in as ${acc.username}`}
+                    >
+                      <div className="w-4 h-4 rounded-full overflow-hidden bg-black shrink-0">
+                        <img src={acc.gamerpic} alt="" className="w-full h-full object-cover" />
+                      </div>
+                      <span className="font-bold truncate max-w-[85px]">{acc.username}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAccountToDelete(acc);
+                      }}
+                      className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-950/40 border-l border-slate-700/80 transition-colors cursor-pointer"
+                      title={`Permanently delete account ${acc.username}`}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Single Account Deletion Confirmation Modal */}
+          {accountToDelete && (
+            <div className="mb-4 p-3.5 bg-red-950/70 border border-red-700/80 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-red-200">
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  <span>Delete Account "@{accountToDelete.username}"?</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAccountToDelete(null)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-[11px] text-red-300/90 leading-tight">
+                This will permanently delete "@{accountToDelete.username}" from the Atlas cloud network, unfriend all connections, and erase saved login data.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setAccountToDelete(null)}
+                  className="px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:text-white bg-[#202534] rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => handleDeleteAccount(accountToDelete)}
+                  className="px-3 py-1 text-[11px] font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                  <span>Confirm Delete</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Purge All Test Accounts Confirmation Modal */}
+          {showPurgeConfirm && (
+            <div className="mb-4 p-3.5 bg-red-950/70 border border-red-700/80 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-red-200">
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  <span>Purge All Test Accounts on Network?</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPurgeConfirm(false)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-[11px] text-red-300/90 leading-tight">
+                Are you sure you want to delete all test accounts created for the friend system? This wipes all test accounts and friend records on the Atlas network.
+              </p>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={() => setShowPurgeConfirm(false)}
+                  className="px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:text-white bg-[#202534] rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={handlePurgeAllTestAccounts}
+                  className="px-3 py-1 text-[11px] font-bold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  {isDeleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                  <span>Yes, Delete All Test Accounts</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Birthday Section (Sign up only) */}
+            {/* Birthday Section (Sign up only) - MANDATORY */}
             {!isLoginMode && (
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Birthday
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-200">
+                    Birthday <span className="text-red-400 font-bold">*</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">Required</span>
+                </div>
                 <div className="grid grid-cols-3 gap-2">
                   {/* Month */}
                   <div className="relative">
@@ -343,9 +529,14 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
 
             {/* Username */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Username
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-200">
+                  Username {!isLoginMode && <span className="text-red-400 font-bold">*</span>}
+                </label>
+                {!isLoginMode && (
+                  <span className="text-[10px] text-slate-400">3-20 characters, no spaces</span>
+                )}
+              </div>
               <input
                 type="text"
                 required
@@ -353,17 +544,23 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
                 onChange={(e) => {
                   setUsername(e.target.value);
                   setErrorMessage(null);
+                  setSuccessNotice(null);
                 }}
-                placeholder={isLoginMode ? "Enter your username" : "Unique Atlas username"}
+                placeholder={isLoginMode ? "Enter your username" : "Unique Atlas gamertag"}
                 className="w-full bg-[#111215] text-white text-xs py-2.5 px-3.5 rounded-lg border border-[#3b3d42] placeholder-[#666a73] focus:outline-none focus:border-[#00A2FF]"
               />
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                Password
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-slate-200">
+                  Password {!isLoginMode && <span className="text-red-400 font-bold">*</span>}
+                </label>
+                {!isLoginMode && (
+                  <span className="text-[10px] text-slate-400">4+ characters</span>
+                )}
+              </div>
               <input
                 type="password"
                 required
@@ -371,6 +568,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
                 onChange={(e) => {
                   setPassword(e.target.value);
                   setErrorMessage(null);
+                  setSuccessNotice(null);
                 }}
                 placeholder="At least 4 characters"
                 className="w-full bg-[#111215] text-white text-xs py-2.5 px-3.5 rounded-lg border border-[#3b3d42] placeholder-[#666a73] focus:outline-none focus:border-[#00A2FF]"
@@ -380,9 +578,12 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
             {/* Custom Profile Image Upload (Sign up only) */}
             {!isLoginMode && (
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Profile Picture (Upload Custom Image)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-200">
+                    Profile Picture
+                  </label>
+                  <span className="text-[10px] text-slate-400">Optional</span>
+                </div>
                 <div className="flex items-center gap-3 bg-[#111215] p-2.5 rounded-lg border border-[#3b3d42]">
                   {/* Live Preview */}
                   <div className="w-11 h-11 rounded-lg overflow-hidden bg-black border border-slate-700 shrink-0 flex items-center justify-center">
@@ -421,9 +622,12 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
             {/* Gender Selection (Sign up only) */}
             {!isLoginMode && (
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Gender (optional)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300">
+                    Gender
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-normal">Optional</span>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"

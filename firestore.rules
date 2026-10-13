@@ -25,7 +25,13 @@ service cloud.firestore {
         && data.password is string && data.password.size() >= 4 && data.password.size() <= 128
         && data.createdAt is string && data.createdAt.size() <= 64
         && (!('gamerpic' in data) || (data.gamerpic is string && data.gamerpic.size() <= 5000000))
-        && (!('gender' in data) || (data.gender is string && data.gender.size() <= 16));
+        && (!('gender' in data) || data.gender == null || (data.gender is string && data.gender.size() <= 16))
+        && (!('birthday' in data) || (
+            data.birthday is map
+            && data.birthday.month is string && data.birthday.month.size() <= 32
+            && data.birthday.day is string && data.birthday.day.size() <= 10
+            && data.birthday.year is string && data.birthday.year.size() <= 10
+        ));
     }
 
     // Connection test document
