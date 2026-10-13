@@ -201,9 +201,67 @@ export function getAboutBlankPromptPref(): boolean {
 }
 
 /**
- * Open in an about:blank cloaked tab (sets title to 'New Tab' by default)
+ * Closes the current browser tab right after opening in about:blank.
+ * Uses window.open('', '_self') + window.close() tricks and fallback blanking
+ * for maximum compatibility across Chromium and modern school browsers.
  */
-export function openAboutBlankCloaked(url?: string, customTitleOverride?: string): boolean {
+export function closeCurrentTab(andBlankFallback: boolean = false): void {
+  if (typeof window === 'undefined') return;
+
+  // If running inside an iframe (e.g. AI Studio development preview), protect the parent workspace
+  if (window.self !== window.top) {
+    console.log('App running inside iframe, skipping tab closure');
+    return;
+  }
+
+  // Immediate close attempt
+  try {
+    window.open('', '_self');
+    window.close();
+  } catch {
+    // fallback
+  }
+
+  try {
+    window.close();
+  } catch {
+    // fallback
+  }
+
+  // Secondary close attempt and fallback
+  setTimeout(() => {
+    try {
+      window.open('', '_self');
+      window.close();
+    } catch {
+      // fallback
+    }
+    try {
+      window.close();
+    } catch {
+      // fallback
+    }
+
+    // If browser security strictly refused to close a non-script tab, blank the page so Atlas is gone
+    if (andBlankFallback) {
+      try {
+        window.location.replace('about:blank');
+      } catch {
+        // fallback
+      }
+    }
+  }, 150);
+}
+
+/**
+ * Open in an about:blank cloaked tab (sets title to 'New Tab' by default)
+ * and closes the original tab right after clicking.
+ */
+export function openAboutBlankCloaked(
+  url?: string,
+  customTitleOverride?: string,
+  closeOriginal: boolean = true
+): boolean {
   if (typeof window === 'undefined') return false;
   const currentUrl = url || window.location.href;
   
@@ -255,6 +313,12 @@ export function openAboutBlankCloaked(url?: string, customTitleOverride?: string
       </html>
     `);
     win.document.close();
+
+    // Close the original tab right after clicking
+    if (closeOriginal) {
+      closeCurrentTab(true);
+    }
+
     return true;
   } catch (err) {
     console.error('Failed to open about:blank window:', err);

@@ -12,6 +12,7 @@ import { GameRunnerModal } from './components/GameRunnerModal';
 import { SettingsModal } from './components/SettingsModal';
 import { TabCloakModal } from './components/TabCloakModal';
 import { AboutBlankPromptModal } from './components/AboutBlankPromptModal';
+import { ProjectSafetyModal } from './components/ProjectSafetyModal';
 import { StartStreamModal } from './components/StartStreamModal';
 import { LiveStreamPlayerModal } from './components/LiveStreamPlayerModal';
 import { StealthView } from './components/StealthView';
@@ -41,7 +42,7 @@ export const PRESET_GAMES: CustomGame[] = [
   {
     id: 'game-geo',
     title: 'Geometry Dash',
-    url: 'https://truffled.lol/games/geo/index.html',
+    url: 'https://gabriel-chirinos.github.io/Geometry-Dash/',
     thumbnail: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80',
     genre: 'Action',
     description: 'Jump, fly, and flip your way through rhythm-based obstacles and neon caverns.',
@@ -52,12 +53,12 @@ export const PRESET_GAMES: CustomGame[] = [
     isPreset: true,
   },
   {
-    id: 'game-portal2',
-    title: 'Portal 2',
-    url: 'https://truffled.lol/games/portal2/portal2/index.html',
+    id: 'game-2048',
+    title: '2048 Classic',
+    url: 'https://play2048.co/',
     thumbnail: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=600&auto=format&fit=crop&q=80',
     genre: 'Puzzle',
-    description: 'Break the laws of spatial physics with your handheld portal device in Aperture Science.',
+    description: 'Join the numbers and reach the 2048 tile in this timeless brain-teaser.',
     addedAt: '2026-10-11T00:00:00.000Z',
     playedCount: 0,
     favorite: true,
@@ -65,12 +66,12 @@ export const PRESET_GAMES: CustomGame[] = [
     isPreset: true,
   },
   {
-    id: 'game-boir',
-    title: 'The Binding of Isaac: Rebirth',
-    url: 'https://truffled.lol/games/boir/index.html',
+    id: 'game-hextris',
+    title: 'Hextris Neo',
+    url: 'https://hextris.io/',
     thumbnail: 'https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?w=600&auto=format&fit=crop&q=80',
-    genre: 'Roguelike',
-    description: 'A randomly generated action RPG shooter with heavy roguelike dungeon elements.',
+    genre: 'Arcade',
+    description: 'Fast-paced hexagon puzzle game inspired by Tetris. Match 3 colors to clear lines.',
     addedAt: '2026-10-11T00:00:00.000Z',
     playedCount: 0,
     favorite: true,
@@ -102,6 +103,7 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(sounds.isMuted());
   const [cloakConfig, setCloakConfig] = useState<TabCloakConfig>(getSavedTabCloak);
   const [aboutBlankPromptOpen, setAboutBlankPromptOpen] = useState(() => shouldPromptAboutBlankOnLaunch());
+  const [safetyModalOpen, setSafetyModalOpen] = useState(false);
 
   // Apply saved tab disguise on startup and on change
   useEffect(() => {
@@ -530,6 +532,7 @@ export default function App() {
             onViewAllFriends={() => setCurrentTab('FRIENDS')}
             onViewAllStreams={() => setCurrentTab('STREAMS')}
             onPromptSignIn={handleLogOut}
+            onOpenSafetyModal={() => setSafetyModalOpen(true)}
           />
         )}
 
@@ -620,7 +623,15 @@ export default function App() {
           }}
           onClearCustomGames={handleClearCustomGames}
           onResetData={handleResetData}
+          onOpenSafetyModal={() => setSafetyModalOpen(true)}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {/* Teacher & School IT Safety Verification Modal */}
+      {safetyModalOpen && (
+        <ProjectSafetyModal
+          onClose={() => setSafetyModalOpen(false)}
         />
       )}
 

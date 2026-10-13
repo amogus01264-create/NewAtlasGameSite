@@ -14,6 +14,7 @@ interface SettingsModalProps {
   onOpenFullCloak: () => void;
   onClearCustomGames: () => void;
   onResetData: () => void;
+  onOpenSafetyModal?: () => void;
   onClose: () => void;
 }
 
@@ -27,6 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenFullCloak,
   onClearCustomGames,
   onResetData,
+  onOpenSafetyModal,
   onClose,
 }) => {
   const [gamertag, setGamertag] = useState(userProfile.gamertag);
@@ -285,6 +287,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span>Reset</span>
             </button>
           </div>
+
+          {/* Teacher & School IT Safety Verification */}
+          {onOpenSafetyModal && (
+            <div className="p-4 bg-[#141e2c] rounded-xl border border-emerald-600/30 flex items-center justify-between">
+              <div>
+                <div className="text-sm font-bold text-emerald-300 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                  <span>Teacher & IT Whitelist Guide</span>
+                </div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  View safety audits and copy an IT whitelist request for your teacher.
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  sounds.playSelect();
+                  onOpenSafetyModal();
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0"
+              >
+                <span>View Guide</span>
+              </button>
+            </div>
+          )}
 
           {/* Footer note */}
           <div className="flex items-center justify-center gap-2 text-xs text-slate-500 pt-2">

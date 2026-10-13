@@ -23,9 +23,9 @@ export const AddGameModal: React.FC<AddGameModalProps> = ({ onAddGame, onClose }
   } | null>(null);
 
   const popularGamePresets = [
-    { name: 'Geometry Dash', url: 'https://truffled.lol/games/geo/index.html', genre: 'Action', thumb: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80', mode: 'direct' as const },
-    { name: 'Portal 2', url: 'https://truffled.lol/games/portal2/portal2/index.html', genre: 'Puzzle', thumb: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=600&auto=format&fit=crop&q=80', mode: 'direct' as const },
-    { name: 'The Binding of Isaac: Rebirth', url: 'https://truffled.lol/games/boir/index.html', genre: 'Roguelike', thumb: 'https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?w=600&auto=format&fit=crop&q=80', mode: 'direct' as const },
+    { name: 'Geometry Dash', url: 'https://gabriel-chirinos.github.io/Geometry-Dash/', genre: 'Action', thumb: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80', mode: 'direct' as const },
+    { name: '2048 Classic', url: 'https://play2048.co/', genre: 'Puzzle', thumb: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=600&auto=format&fit=crop&q=80', mode: 'direct' as const },
+    { name: 'Hextris Neo', url: 'https://hextris.io/', genre: 'Arcade', thumb: 'https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?w=600&auto=format&fit=crop&q=80', mode: 'direct' as const },
     { name: '2048', url: 'https://play2048.co/', genre: 'Puzzle', thumb: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=600&auto=format&fit=crop&q=80', mode: 'proxy' as const },
     { name: 'Hextris Neo', url: 'https://hextris.io/', genre: 'Arcade', thumb: 'https://images.unsplash.com/photo-1579373903781-fd5c0c30c4cd?w=600&auto=format&fit=crop&q=80', mode: 'proxy' as const },
     { name: 'Paper.io 2', url: 'https://paper-io.com/', genre: 'Action', thumb: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=600&auto=format&fit=crop&q=80', mode: 'proxy' as const },

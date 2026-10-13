@@ -55,8 +55,6 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
       sounds.playBack();
       if (onPromptSignIn) {
         onPromptSignIn();
-      } else {
-        alert('Guests cannot add friends. Please sign in or create an account.');
       }
       return;
     }

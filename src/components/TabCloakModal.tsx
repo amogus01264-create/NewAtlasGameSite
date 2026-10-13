@@ -6,6 +6,7 @@ import {
   applyTabCloak,
   saveTabCloak,
   openAboutBlankCloaked,
+  closeCurrentTab,
 } from '../services/tabCloak';
 import { sounds } from '../services/soundEffects';
 import {
@@ -76,10 +77,10 @@ export const TabCloakModal: React.FC<TabCloakModalProps> = ({
   const handleLaunchAboutBlank = () => {
     sounds.playLaunch();
     setAboutBlankError(false);
-    const ok = openAboutBlankCloaked();
+    const ok = openAboutBlankCloaked(undefined, undefined, true);
     if (ok) {
       setAboutBlankSuccess(true);
-      setTimeout(() => setAboutBlankSuccess(false), 3000);
+      closeCurrentTab(true);
     } else {
       setAboutBlankError(true);
       setTimeout(() => setAboutBlankError(false), 5000);
@@ -259,7 +260,7 @@ export const TabCloakModal: React.FC<TabCloakModalProps> = ({
                   <span>Launch in about:blank Tab</span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  Opens Atlas inside an <code>about:blank</code> tab with your active disguise. It doesn't appear in browser search history.
+                  Opens Atlas inside an <code>about:blank</code> tab with title &ldquo;New Tab&rdquo; and immediately closes this original tab.
                 </p>
               </div>
               <button
@@ -267,12 +268,19 @@ export const TabCloakModal: React.FC<TabCloakModalProps> = ({
                 onClick={handleLaunchAboutBlank}
                 className="px-3 py-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 border border-cyan-500/50 text-cyan-300 text-xs font-bold rounded-lg transition-colors cursor-pointer shrink-0"
               >
-                Launch Now
+                Launch &amp; Close This
               </button>
             </div>
             {aboutBlankSuccess && (
-              <div className="text-[11px] text-emerald-400 font-semibold bg-emerald-950/40 border border-emerald-700/40 rounded px-2.5 py-1">
-                ✓ Opened in cloaked about:blank tab with title &ldquo;New Tab&rdquo;!
+              <div className="text-[11px] text-emerald-400 font-semibold bg-emerald-950/40 border border-emerald-700/40 rounded px-2.5 py-1.5 flex items-center justify-between">
+                <span>✓ Opened in cloaked about:blank tab &amp; closing this tab...</span>
+                <button
+                  type="button"
+                  onClick={() => closeCurrentTab(true)}
+                  className="underline text-emerald-300 hover:text-white ml-2 cursor-pointer"
+                >
+                  Close Now
+                </button>
               </div>
             )}
             {aboutBlankError && (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CustomGame, Friend, UserProfile, LiveStream } from '../types';
-import { Plus, UserPlus, Play, Lock, AlertCircle, X, Settings, Radio, Eye, Gamepad2, Tv } from 'lucide-react';
+import { Plus, UserPlus, Play, Lock, AlertCircle, X, Settings, Radio, Eye, Gamepad2, Tv, ShieldCheck } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 
 interface HomeScreenProps {
@@ -17,6 +17,7 @@ interface HomeScreenProps {
   onViewAllFriends: () => void;
   onViewAllStreams?: () => void;
   onPromptSignIn?: () => void;
+  onOpenSafetyModal?: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -33,6 +34,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onViewAllFriends,
   onViewAllStreams,
   onPromptSignIn,
+  onOpenSafetyModal,
 }) => {
   const [guestNoticeOpen, setGuestNoticeOpen] = useState(false);
 
@@ -503,8 +505,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
       </div>
 
-      {/* ================= BOTTOM RIGHT: SETTINGS ================= */}
-      <div className="fixed bottom-4 right-6 z-20">
+      {/* ================= BOTTOM RIGHT: SETTINGS & SAFETY ================= */}
+      <div className="fixed bottom-4 right-6 z-20 flex items-center gap-2">
+        {onOpenSafetyModal && (
+          <button
+            onClick={() => {
+              sounds.playSelect();
+              onOpenSafetyModal();
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141824]/90 hover:bg-[#1e2436] border border-emerald-600/40 shadow-lg text-emerald-300 hover:text-white transition-all cursor-pointer group focus:outline-none"
+            title="Teacher & School IT Safety Verification"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+            <span className="text-xs font-bold tracking-wide hidden sm:inline">
+              Safe for School / IT Info
+            </span>
+          </button>
+        )}
+
         <button
           onClick={() => {
             sounds.playSelect();

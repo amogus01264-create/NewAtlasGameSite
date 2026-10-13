@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ExternalLink, Check, AlertCircle, X, Shield, ArrowRight } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
-import { openAboutBlankCloaked, setAboutBlankPromptPref } from '../services/tabCloak';
+import { openAboutBlankCloaked, setAboutBlankPromptPref, closeCurrentTab } from '../services/tabCloak';
 
 interface AboutBlankPromptModalProps {
   onClose: () => void;
@@ -20,12 +20,10 @@ export const AboutBlankPromptModal: React.FC<AboutBlankPromptModalProps> = ({ on
       setAboutBlankPromptPref(false);
     }
 
-    const opened = openAboutBlankCloaked(undefined, 'New Tab');
+    const opened = openAboutBlankCloaked(undefined, 'New Tab', true);
     if (opened) {
       setSuccess(true);
-      setTimeout(() => {
-        onClose();
-      }, 1200);
+      closeCurrentTab(true);
     } else {
       setBlockedError(true);
     }
@@ -87,7 +85,9 @@ export const AboutBlankPromptModal: React.FC<AboutBlankPromptModalProps> = ({ on
                 Tab title changes to <strong className="text-slate-200">&ldquo;New Tab&rdquo;</strong> with generic browser icon
               </li>
               <li>Runs inside an untracked cloaked browser window</li>
-              <li>Retains your games, profile, and multiplayer lobby features</li>
+              <li>
+                <strong className="text-emerald-400">Closes this original tab immediately</strong> right after you click
+              </li>
             </ul>
           </div>
 
@@ -106,9 +106,18 @@ export const AboutBlankPromptModal: React.FC<AboutBlankPromptModalProps> = ({ on
 
           {/* Success notice */}
           {success && (
-            <div className="p-3 bg-emerald-950/40 border border-emerald-600/50 rounded-xl flex items-center gap-2 text-emerald-300 text-xs">
-              <Check className="w-4 h-4 text-emerald-400" />
-              <span>Opening Atlas in &ldquo;New Tab&rdquo; (about:blank)...</span>
+            <div className="p-3 bg-emerald-950/50 border border-emerald-500/50 rounded-xl flex items-center justify-between gap-2 text-emerald-300 text-xs animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>Opened in &ldquo;New Tab&rdquo; &amp; closing original tab...</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => closeCurrentTab(true)}
+                className="px-2.5 py-1 text-[11px] font-bold bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 text-emerald-200 rounded cursor-pointer shrink-0"
+              >
+                Close Tab Now
+              </button>
             </div>
           )}
 
