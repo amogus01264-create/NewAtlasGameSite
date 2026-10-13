@@ -1,7 +1,22 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { NavTab, UserProfile, TabCloakConfig } from '../types';
 import { AtlasLogo } from './AtlasLogo';
-import { Volume2, VolumeX, EyeOff, Plus, UserPlus, LogOut, Lock, Shield, Settings, Radio } from 'lucide-react';
+import {
+  Volume2,
+  VolumeX,
+  EyeOff,
+  Plus,
+  UserPlus,
+  LogOut,
+  Lock,
+  Shield,
+  Settings,
+  Radio,
+  Trash2,
+  ChevronDown,
+  User,
+  AlertTriangle,
+} from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 import { CLOAK_PRESETS } from '../services/tabCloak';
 
@@ -20,6 +35,7 @@ interface HeaderNavProps {
   activeStreamsCount?: number;
   cloakConfig: TabCloakConfig;
   onLogOut: () => void;
+  onDeleteAccount?: () => void;
   onPromptSignIn?: () => void;
 }
 
@@ -38,8 +54,25 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   activeStreamsCount = 0,
   cloakConfig,
   onLogOut,
+  onDeleteAccount,
   onPromptSignIn,
 }) => {
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+    if (accountMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [accountMenuOpen]);
   const tabs: { key: NavTab; label: string; badge?: number }[] = [
     { key: 'HOME', label: 'HOME' },
     { key: 'GAMES', label: 'GAMES' },
@@ -183,34 +216,144 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             )}
           </button>
 
-          {/* Gamertag Label & Avatar Pic */}
-          <div className="flex items-center gap-2 pl-2 pr-3 py-1 bg-[#141a24] rounded-lg border border-slate-800 text-xs font-bold text-slate-200">
-            <div className="w-5 h-5 rounded-full overflow-hidden bg-black border border-cyan-400/50 flex items-center justify-center">
-              <img
-                src={userProfile.gamerpic}
-                alt=""
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <span className="max-w-[100px] truncate">{userProfile.gamertag}</span>
-            {userProfile.isGuest && (
-              <span className="text-[9px] bg-amber-950/80 border border-amber-800/40 text-amber-400 px-1 py-0.2 rounded font-bold uppercase">
-                Guest
-              </span>
+          {/* Interactive Account Profile Button & Dropdown */}
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => {
+                sounds.playSelect();
+                setAccountMenuOpen((prev) => !prev);
+              }}
+              className="flex items-center gap-2 pl-2 pr-2.5 py-1 bg-[#141a24] hover:bg-[#1a2232] rounded-lg border border-slate-800 hover:border-slate-700 text-xs font-bold text-slate-200 transition-colors cursor-pointer group shadow-sm"
+              title="Account Menu (Log Out, Delete Account, Profile)"
+            >
+              <div className="w-5 h-5 rounded-full overflow-hidden bg-black border border-cyan-400/50 flex items-center justify-center shrink-0">
+                <img
+                  src={userProfile.gamerpic}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <span className="max-w-[100px] truncate">{userProfile.gamertag}</span>
+              {userProfile.isGuest ? (
+                <span className="text-[9px] bg-amber-950/80 border border-amber-800/40 text-amber-400 px-1 py-0.2 rounded font-bold uppercase">
+                  Guest
+                </span>
+              ) : (
+                <ChevronDown className="w-3 h-3 text-slate-400 group-hover:text-white transition-colors" />
+              )}
+            </button>
+
+            {/* Account Popover Menu */}
+            {accountMenuOpen && (
+              <div className="absolute right-0 top-full mt-2 w-64 bg-[#141724] border border-[#2b3145] rounded-xl shadow-[0_15px_30px_rgba(0,0,0,0.8)] z-50 p-3 space-y-3 animate-in fade-in zoom-in-95 duration-100">
+                {/* Profile Snapshot */}
+                <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-800">
+                  <div className="w-9 h-9 rounded-full overflow-hidden bg-black border border-cyan-400/60 shrink-0">
+                    <img src={userProfile.gamerpic} alt="" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                      <span>@{userProfile.gamertag}</span>
+                      {userProfile.isGuest ? (
+                        <span className="text-[8px] bg-amber-950 text-amber-400 border border-amber-700/60 px-1 rounded uppercase font-bold">
+                          Guest
+                        </span>
+                      ) : (
+                        <span className="text-[8px] bg-cyan-950 text-cyan-300 border border-cyan-700/60 px-1 rounded uppercase font-bold">
+                          Online
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {userProfile.isGuest ? 'Local guest session' : 'Atlas Cloud Network Account'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="space-y-1.5">
+                  {/* Log Out */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAccountMenuOpen(false);
+                      sounds.playBack();
+                      onLogOut();
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-bold text-slate-200 hover:text-white bg-[#1a1f2e] hover:bg-[#232b40] rounded-lg transition-colors cursor-pointer text-left"
+                  >
+                    <LogOut className="w-4 h-4 text-cyan-400 shrink-0" />
+                    <span>Log Out / Switch Account</span>
+                  </button>
+
+                  {/* Delete Account (For Registered Accounts) */}
+                  {!userProfile.isGuest && onDeleteAccount && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        sounds.playExplosion();
+                        onDeleteAccount();
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-bold text-red-300 hover:text-white bg-red-950/40 hover:bg-red-900/60 border border-red-800/40 rounded-lg transition-colors cursor-pointer text-left"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-400 shrink-0" />
+                      <div>
+                        <div>Delete Account from Network</div>
+                        <div className="text-[9px] text-red-400/80 font-normal">Permanently erase profile & friends</div>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* If Guest: Prompt Sign Up */}
+                  {userProfile.isGuest && onPromptSignIn && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        onPromptSignIn();
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-xs font-bold text-cyan-300 hover:text-white bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-800/40 rounded-lg transition-colors cursor-pointer text-left"
+                    >
+                      <User className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <div>
+                        <div>Sign Up or Log In</div>
+                        <div className="text-[9px] text-cyan-400/80 font-normal">Unlock friends & saved data</div>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Log Out / Switch Account */}
+          {/* Quick Log Out Button */}
           <button
             onClick={() => {
               sounds.playBack();
               onLogOut();
             }}
-            className="p-1.5 bg-[#1a1c22] hover:bg-red-950/50 hover:text-red-300 text-slate-400 border border-slate-800 rounded-lg transition-colors cursor-pointer"
-            title="Switch Account / Sign Out"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[#1a1c22] hover:bg-red-950/50 hover:text-red-300 text-slate-300 border border-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+            title={`Log Out of @${userProfile.gamertag}`}
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-3.5 h-3.5 text-slate-400 hover:text-red-300" />
+            <span className="hidden md:inline">Log Out</span>
           </button>
+
+          {/* Quick Delete Account Button for Registered Users */}
+          {!userProfile.isGuest && onDeleteAccount && (
+            <button
+              onClick={() => {
+                sounds.playExplosion();
+                onDeleteAccount();
+              }}
+              className="p-1.5 bg-red-950/30 hover:bg-red-900/50 text-red-400 hover:text-red-200 border border-red-800/40 rounded-lg transition-colors cursor-pointer"
+              title={`Permanently delete @${userProfile.gamertag} from the Atlas network`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

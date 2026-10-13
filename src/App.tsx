@@ -18,6 +18,7 @@ import { LiveStreamPlayerModal } from './components/LiveStreamPlayerModal';
 import { StealthView } from './components/StealthView';
 import { SignInModal } from './components/SignInModal';
 import { MISSING_TEXTURE_DATA_URL } from './utils/assets';
+import { Radio, Trash2, AlertCircle, Tv, Loader2, X, AlertTriangle } from 'lucide-react';
 import { getSavedTabCloak, applyTabCloak, shouldPromptAboutBlankOnLaunch } from './services/tabCloak';
 import { testConnection } from './services/firebase';
 import { subscribeToActiveStreams, endLiveStream } from './services/streamingService';
@@ -105,6 +106,12 @@ export default function App() {
   const [cloakConfig, setCloakConfig] = useState<TabCloakConfig>(getSavedTabCloak);
   const [aboutBlankPromptOpen, setAboutBlankPromptOpen] = useState(() => shouldPromptAboutBlankOnLaunch());
   const [safetyModalOpen, setSafetyModalOpen] = useState(false);
+  const [streamLimitModal, setStreamLimitModal] = useState<{ open: boolean; stream: LiveStream | null }>({
+    open: false,
+    stream: null,
+  });
+  const [confirmDeleteSelfAccountModal, setConfirmDeleteSelfAccountModal] = useState(false);
+  const [isDeletingSelfAccount, setIsDeletingSelfAccount] = useState(false);
 
   // Apply saved tab disguise on startup and on change
   useEffect(() => {
@@ -248,9 +255,62 @@ export default function App() {
 
   const handleDeleteAccount = async (username: string) => {
     sounds.playExplosion();
+    if (myActiveStream && myActiveStream.streamer.toLowerCase() === username.toLowerCase()) {
+      await endLiveStream(myActiveStream.id).catch(() => null);
+      setMyActiveStream(null);
+    }
     await deleteAccountAsync(username);
-    setUserProfile(null);
+    if (userProfile?.gamertag.toLowerCase() === username.toLowerCase()) {
+      setUserProfile(null);
+      saveSession(null);
+    }
     setSettingsOpen(false);
+  };
+
+  const handleConfirmSelfDeleteAccount = async () => {
+    if (!userProfile) return;
+    setIsDeletingSelfAccount(true);
+    sounds.playExplosion();
+    try {
+      if (myActiveStream) {
+        await endLiveStream(myActiveStream.id).catch(() => null);
+        setMyActiveStream(null);
+      }
+      await deleteAccountAsync(userProfile.gamertag);
+      setUserProfile(null);
+      saveSession(null);
+      setConfirmDeleteSelfAccountModal(false);
+      setSettingsOpen(false);
+    } catch (err) {
+      console.error('Failed to delete user account:', err);
+    } finally {
+      setIsDeletingSelfAccount(false);
+    }
+  };
+
+  // 1-Stream Limitation Check
+  const handleOpenStartStream = (targetGame?: CustomGame | null) => {
+    // Check if the current user is already live
+    let existingStream: LiveStream | null = null;
+    if (myActiveStream && myActiveStream.status === 'live') {
+      existingStream = myActiveStream;
+    } else if (userProfile && !userProfile.isGuest) {
+      const liveMatch = activeStreams.find(
+        (s) => s.streamer.toLowerCase() === userProfile.gamertag.toLowerCase() && s.status === 'live'
+      );
+      if (liveMatch) {
+        existingStream = liveMatch;
+      }
+    }
+
+    if (existingStream) {
+      sounds.playBack();
+      setStreamLimitModal({ open: true, stream: existingStream });
+      return;
+    }
+
+    setStreamGameTarget(targetGame || null);
+    setStartStreamOpen(true);
   };
 
   // Actions: Games
@@ -507,13 +567,11 @@ export default function App() {
         }}
         onOpenTabCloak={() => setTabCloakOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}
-        onOpenStartStream={() => {
-          setStreamGameTarget(activeGame || null);
-          setStartStreamOpen(true);
-        }}
+        onOpenStartStream={() => handleOpenStartStream(activeGame || null)}
         activeStreamsCount={activeStreams.length}
         cloakConfig={cloakConfig}
         onLogOut={handleLogOut}
+        onDeleteAccount={() => setConfirmDeleteSelfAccountModal(true)}
         onPromptSignIn={handleLogOut}
       />
 
@@ -559,10 +617,7 @@ export default function App() {
             streams={activeStreams}
             userProfile={userProfile}
             onWatchStream={setWatchingStream}
-            onOpenStartStream={() => {
-              setStreamGameTarget(null);
-              setStartStreamOpen(true);
-            }}
+            onOpenStartStream={() => handleOpenStartStream(null)}
             onPromptSignIn={handleLogOut}
           />
         )}
@@ -666,10 +721,7 @@ export default function App() {
           game={activeGame}
           onClose={() => setActiveGame(null)}
           onTriggerStealth={() => setStealthActive(true)}
-          onStartStream={(game) => {
-            setStreamGameTarget(game);
-            setStartStreamOpen(true);
-          }}
+          onStartStream={(game) => handleOpenStartStream(game)}
         />
       )}
 
@@ -679,6 +731,13 @@ export default function App() {
           userProfile={userProfile}
           currentGame={streamGameTarget || activeGame || null}
           availableGames={games}
+          activeStream={myActiveStream}
+          onEndExistingStream={async () => {
+            if (myActiveStream) {
+              await endLiveStream(myActiveStream.id);
+              setMyActiveStream(null);
+            }
+          }}
           onStreamStarted={(newStream) => {
             setMyActiveStream(newStream);
             setWatchingStream(newStream);
@@ -702,6 +761,168 @@ export default function App() {
             }
           }}
         />
+      )}
+
+      {/* 1-Stream Limit Warning Modal: User is already streaming and clicked Go Live again */}
+      {streamLimitModal.open && streamLimitModal.stream && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md select-none animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md bg-[#141824] border border-red-500/70 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9)] p-6 text-white space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-red-600/20 border border-red-500/50 flex items-center justify-center text-red-500 shrink-0">
+                  <Radio className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white uppercase tracking-wider">
+                    Only 1 Stream Open At A Time
+                  </h3>
+                  <p className="text-xs text-red-300/80">
+                    You are already live broadcasting
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStreamLimitModal({ open: false, stream: null })}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-red-950/40 border border-red-700/60 rounded-xl space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-300">Current Broadcast:</span>
+                <span className="text-[10px] bg-red-600 text-white font-black px-1.5 py-0.5 rounded uppercase flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                  LIVE
+                </span>
+              </div>
+              <div className="text-sm font-bold text-white truncate">
+                "{streamLimitModal.stream.title}"
+              </div>
+              <div className="text-[11px] text-slate-400">
+                Playing: <span className="text-cyan-400 font-semibold">{streamLimitModal.stream.gameTitle}</span>
+              </div>
+              <p className="text-[11px] text-slate-300/90 pt-1 leading-relaxed">
+                You can only have 1 stream open at a time. To start a different game stream, please end your current broadcast first or open your active stream.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setStreamLimitModal({ open: false, stream: null })}
+                className="w-full sm:w-auto px-4 py-2 bg-[#202535] hover:bg-[#282f42] text-slate-300 hover:text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const s = streamLimitModal.stream;
+                  setStreamLimitModal({ open: false, stream: null });
+                  if (s) setWatchingStream(s);
+                }}
+                className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-700 text-cyan-400 border border-cyan-500/40 text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Tv className="w-3.5 h-3.5" />
+                <span>View My Stream</span>
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const s = streamLimitModal.stream;
+                  setStreamLimitModal({ open: false, stream: null });
+                  if (s) {
+                    sounds.playExplosion();
+                    await endLiveStream(s.id);
+                    setMyActiveStream(null);
+                    setTimeout(() => {
+                      setStartStreamOpen(true);
+                    }, 250);
+                  }
+                }}
+                className="w-full sm:w-auto px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Radio className="w-3.5 h-3.5" />
+                <span>End Old & Go Live</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permanently Delete Signed-in Account Modal */}
+      {confirmDeleteSelfAccountModal && userProfile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md select-none animate-in fade-in duration-150">
+          <div className="relative w-full max-w-md bg-[#161924] border border-red-600/70 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9)] p-6 text-white space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-red-600/20 border border-red-500/40 flex items-center justify-center text-red-500 shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white uppercase tracking-wider">
+                    Delete Account from Network
+                  </h3>
+                  <p className="text-xs text-red-300">
+                    Permanent account removal
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isDeletingSelfAccount}
+                onClick={() => setConfirmDeleteSelfAccountModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-red-950/50 border border-red-700/60 rounded-xl space-y-2 text-xs text-red-200 leading-relaxed">
+              <p>
+                Are you sure you want to delete <strong className="text-white font-bold">@{userProfile.gamertag}</strong> from the Atlas cloud network?
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-[11px] text-red-300/90 pt-1">
+                <li>Your profile and login credentials will be permanently erased.</li>
+                <li>All friends and friend requests will be bidirectionally removed.</li>
+                <li>Any live streams by this account will be ended immediately.</li>
+                <li>This action cannot be undone.</li>
+              </ul>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isDeletingSelfAccount}
+                onClick={() => setConfirmDeleteSelfAccountModal(false)}
+                className="px-4 py-2 bg-[#202535] hover:bg-[#282f42] text-slate-300 hover:text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingSelfAccount}
+                onClick={handleConfirmSelfDeleteAccount}
+                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 shadow-lg shadow-red-950"
+              >
+                {isDeletingSelfAccount ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting Account...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Permanently Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

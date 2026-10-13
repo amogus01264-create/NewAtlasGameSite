@@ -19,6 +19,8 @@ interface StartStreamModalProps {
   userProfile: UserProfile;
   currentGame?: CustomGame | null;
   availableGames: CustomGame[];
+  activeStream?: LiveStream | null;
+  onEndExistingStream?: () => Promise<void> | void;
   onStreamStarted: (stream: LiveStream) => void;
   onClose: () => void;
 }
@@ -27,6 +29,8 @@ export const StartStreamModal: React.FC<StartStreamModalProps> = ({
   userProfile,
   currentGame,
   availableGames,
+  activeStream,
+  onEndExistingStream,
   onStreamStarted,
   onClose,
 }) => {
@@ -220,6 +224,31 @@ export const StartStreamModal: React.FC<StartStreamModalProps> = ({
             </div>
           </div>
 
+          {/* 1 Stream Limit Notice if already streaming */}
+          {activeStream && activeStream.status === 'live' && (
+            <div className="p-3.5 bg-red-950/70 border border-red-700/80 rounded-xl space-y-2 text-xs text-red-200">
+              <div className="flex items-center gap-2 font-bold text-white">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>You can only have 1 stream open at a time</span>
+              </div>
+              <p className="text-[11px] text-red-300/90 leading-tight">
+                You already have an active broadcast: <strong className="text-white">"{activeStream.title}"</strong>. Atlas limits players to 1 stream at a time. Please end your current broadcast before starting another.
+              </p>
+              {onEndExistingStream && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await onEndExistingStream();
+                  }}
+                  className="px-3 py-1.5 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg transition-colors cursor-pointer text-xs flex items-center gap-1.5"
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                  <span>End Active Stream & Continue</span>
+                </button>
+              )}
+            </div>
+          )}
+
           {errorMessage && (
             <div className="p-3 bg-red-950/40 border border-red-800/60 rounded-xl flex items-center gap-2 text-red-300 text-xs">
               <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
@@ -230,13 +259,18 @@ export const StartStreamModal: React.FC<StartStreamModalProps> = ({
           {/* Submit Action */}
           <button
             type="submit"
-            disabled={isStarting}
-            className="w-full py-3 bg-red-600 hover:bg-red-500 disabled:bg-red-800 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg transition-all cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            disabled={isStarting || Boolean(activeStream && activeStream.status === 'live')}
+            className="w-full py-3 bg-red-600 hover:bg-red-500 disabled:bg-[#341b22] disabled:text-slate-500 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg transition-all cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isStarting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Requesting Screen Share...</span>
+              </>
+            ) : activeStream && activeStream.status === 'live' ? (
+              <>
+                <AlertCircle className="w-4 h-4 text-red-400" />
+                <span>Cannot Go Live (Only 1 Stream Allowed At A Time)</span>
               </>
             ) : (
               <>

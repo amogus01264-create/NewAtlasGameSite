@@ -194,7 +194,21 @@ export const deleteAccountAsync = async (
       }
     }
 
-    // 5. Clean up local storage
+    // 5. Clean up any active or past streams created by this user
+    try {
+      const streamsCol = collection(db, 'streams');
+      const qStreams = query(streamsCol, where('streamer', '==', clean));
+      const snapStreams = await getDocs(qStreams).catch(() => null);
+      if (snapStreams) {
+        for (const d of snapStreams.docs) {
+          await deleteDoc(d.ref).catch(() => null);
+        }
+      }
+    } catch {
+      // ignore stream delete errors
+    }
+
+    // 6. Clean up local storage
     try {
       if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
         const local = getRegisteredAccounts().filter((a) => a.username.toLowerCase() !== cleanLower);
