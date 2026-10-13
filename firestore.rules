@@ -82,14 +82,14 @@ service cloud.firestore {
       allow delete: if isValidId(streamId);
 
       match /messages/{messageId} {
-        allow read: if isValidId(messageId);
+        allow read: if true;
         allow create: if isValidId(messageId)
           && incoming().text is string && incoming().text.size() <= 500;
         allow delete: if isValidId(messageId);
       }
 
       match /signals/{signalId} {
-        allow read: if isValidId(signalId);
+        allow read: if true;
         allow create: if isValidId(signalId);
         allow update: if isValidId(signalId);
         allow delete: if isValidId(signalId);

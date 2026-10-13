@@ -10,6 +10,7 @@ import {
   updateViewerCount,
 } from '../services/streamingService';
 import { sounds } from '../services/soundEffects';
+import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
 import {
   X,
   Radio,
@@ -75,7 +76,17 @@ export const LiveStreamPlayerModal: React.FC<LiveStreamPlayerModalProps> = ({
   // 2. Subscribe to real-time stream chat
   useEffect(() => {
     const unsubChat = subscribeToStreamChat(stream.id, (msgs) => {
-      setMessages(msgs);
+      setMessages((prev) => {
+        // Retain any pending optimistic messages that haven't shown up in Firestore yet
+        const cloudKeys = new Set(msgs.map((m) => `${m.sender}:${m.text}`));
+        const pendingOptimistic = prev.filter(
+          (m) => m.id.startsWith('msg-opt-') && !cloudKeys.has(`${m.sender}:${m.text}`)
+        );
+        const combined = [...msgs, ...pendingOptimistic].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        );
+        return combined;
+      });
       setTimeout(() => {
         if (chatContainerRef.current) {
           chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
@@ -127,17 +138,37 @@ export const LiveStreamPlayerModal: React.FC<LiveStreamPlayerModalProps> = ({
   // Handle Send Chat
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim() || isSending) return;
+    const clean = chatInput.trim();
+    if (!clean || isSending) return;
 
-    const text = chatInput.trim();
     setChatInput('');
     setIsSending(true);
     sounds.playSelect();
 
+    // Optimistic message displayed immediately in UI
+    const tempId = `msg-opt-${Date.now()}`;
+    const optimisticMsg: StreamMessage = {
+      id: tempId,
+      streamId: stream.id,
+      sender: currentUser.gamertag,
+      senderPic: currentUser.gamerpic || MISSING_TEXTURE_DATA_URL,
+      text: clean,
+      timestamp: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setTimeout(() => {
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
+    }, 30);
+
     try {
-      await sendStreamChatMessage(stream.id, currentUser, text);
+      await sendStreamChatMessage(stream.id, currentUser, clean);
     } catch (err) {
       console.error('Failed to send stream message:', err);
+      // Remove optimistic message if write failed
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } finally {
       setIsSending(false);
     }

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CustomGame } from '../types';
 import { Maximize2, Minimize2, ArrowLeft, RefreshCw, ExternalLink, EyeOff, ShieldCheck, Zap, AlertCircle, Radio } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
+import { closeCurrentTab } from '../services/tabCloak';
 
 interface GameRunnerModalProps {
   game: CustomGame;
@@ -54,6 +55,9 @@ export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
       iframe.src = game.url;
       win.document.body.style.margin = '0';
       win.document.body.appendChild(iframe);
+
+      // Close the original tab right after clicking launch in about:blank
+      closeCurrentTab(true);
     } catch {
       window.open(game.url, '_blank');
     }
