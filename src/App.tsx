@@ -11,12 +11,13 @@ import { FriendBrowserModal } from './components/FriendBrowserModal';
 import { GameRunnerModal } from './components/GameRunnerModal';
 import { SettingsModal } from './components/SettingsModal';
 import { TabCloakModal } from './components/TabCloakModal';
+import { AboutBlankPromptModal } from './components/AboutBlankPromptModal';
 import { StartStreamModal } from './components/StartStreamModal';
 import { LiveStreamPlayerModal } from './components/LiveStreamPlayerModal';
 import { StealthView } from './components/StealthView';
 import { SignInModal } from './components/SignInModal';
 import { MISSING_TEXTURE_DATA_URL } from './utils/assets';
-import { getSavedTabCloak, applyTabCloak } from './services/tabCloak';
+import { getSavedTabCloak, applyTabCloak, shouldPromptAboutBlankOnLaunch } from './services/tabCloak';
 import { testConnection } from './services/firebase';
 import { subscribeToActiveStreams, endLiveStream } from './services/streamingService';
 import {
@@ -33,6 +34,7 @@ import {
   declineFriendRequestCloud,
   unfriendUsersAsync,
   unfriendUsers,
+  clearLocalAccountsCache,
 } from './services/userService';
 
 export const PRESET_GAMES: CustomGame[] = [
@@ -99,6 +101,7 @@ export default function App() {
   const [stealthActive, setStealthActive] = useState(false);
   const [isMuted, setIsMuted] = useState(sounds.isMuted());
   const [cloakConfig, setCloakConfig] = useState<TabCloakConfig>(getSavedTabCloak);
+  const [aboutBlankPromptOpen, setAboutBlankPromptOpen] = useState(() => shouldPromptAboutBlankOnLaunch());
 
   // Apply saved tab disguise on startup and on change
   useEffect(() => {
@@ -367,14 +370,16 @@ export default function App() {
     });
   };
 
-  // Actions: Reset Data (clears friends and custom games, preserving preset games)
+  // Actions: Reset Data (clears friends, accounts cache, and custom games, preserving preset games)
   const handleResetData = () => {
     setGames(PRESET_GAMES);
     setFriends([]);
+    setRequests([]);
     if (userProfile && !userProfile.isGuest) {
       saveFriendsForUser(userProfile.gamertag, []);
       saveRequestsForUser(userProfile.gamertag, []);
     }
+    clearLocalAccountsCache();
     localStorage.setItem('atlas_custom_games', JSON.stringify(PRESET_GAMES));
   };
 
@@ -625,6 +630,13 @@ export default function App() {
           currentConfig={cloakConfig}
           onConfigChange={setCloakConfig}
           onClose={() => setTabCloakOpen(false)}
+        />
+      )}
+
+      {/* Startup Prompt: Launch in about:blank */}
+      {aboutBlankPromptOpen && (
+        <AboutBlankPromptModal
+          onClose={() => setAboutBlankPromptOpen(false)}
         />
       )}
 

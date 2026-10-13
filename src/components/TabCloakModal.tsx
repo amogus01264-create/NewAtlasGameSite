@@ -71,14 +71,18 @@ export const TabCloakModal: React.FC<TabCloakModalProps> = ({
     onConfigChange(newConfig);
   };
 
+  const [aboutBlankError, setAboutBlankError] = useState(false);
+
   const handleLaunchAboutBlank = () => {
     sounds.playLaunch();
+    setAboutBlankError(false);
     const ok = openAboutBlankCloaked();
     if (ok) {
       setAboutBlankSuccess(true);
       setTimeout(() => setAboutBlankSuccess(false), 3000);
     } else {
-      alert('Popup blocker prevented opening about:blank. Please allow popups for this site.');
+      setAboutBlankError(true);
+      setTimeout(() => setAboutBlankError(false), 5000);
     }
   };
 
@@ -268,7 +272,12 @@ export const TabCloakModal: React.FC<TabCloakModalProps> = ({
             </div>
             {aboutBlankSuccess && (
               <div className="text-[11px] text-emerald-400 font-semibold bg-emerald-950/40 border border-emerald-700/40 rounded px-2.5 py-1">
-                ✓ Opened in cloaked about:blank tab!
+                ✓ Opened in cloaked about:blank tab with title &ldquo;New Tab&rdquo;!
+              </div>
+            )}
+            {aboutBlankError && (
+              <div className="text-[11px] text-amber-400 font-semibold bg-amber-950/40 border border-amber-700/40 rounded px-2.5 py-1">
+                Popup blocker prevented opening about:blank. Please enable popups for this site in your browser address bar.
               </div>
             )}
           </div>

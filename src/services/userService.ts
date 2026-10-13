@@ -28,6 +28,15 @@ export const getRegisteredAccounts = (): RegisteredAccount[] => {
   }
 };
 
+export const clearLocalAccountsCache = () => {
+  try {
+    localStorage.removeItem(STORAGE_ACCOUNTS_KEY);
+    localStorage.removeItem(STORAGE_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+};
+
 const cacheAccountLocally = (account: RegisteredAccount) => {
   try {
     const current = getRegisteredAccounts();

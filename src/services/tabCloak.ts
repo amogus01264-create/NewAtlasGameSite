@@ -157,35 +157,79 @@ export function applyTabCloak(config: TabCloakConfig): void {
   }
 }
 
-/**
- * Open in an about:blank cloaked tab (prevents browsing history from logging the game URL directly)
- */
-export function openAboutBlankCloaked(url?: string): boolean {
+const ABOUT_BLANK_PROMPT_KEY = 'atlas_prompt_about_blank_on_launch';
+
+export function isRunningInAboutBlank(): boolean {
   if (typeof window === 'undefined') return false;
-  const target = url || window.location.href;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('cloaked') === 'true') return true;
+    if (window.self !== window.top) return true;
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+export function shouldPromptAboutBlankOnLaunch(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (isRunningInAboutBlank()) return false;
+  try {
+    const pref = localStorage.getItem(ABOUT_BLANK_PROMPT_KEY);
+    if (pref === 'false') return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function setAboutBlankPromptPref(promptOnLaunch: boolean): void {
+  try {
+    localStorage.setItem(ABOUT_BLANK_PROMPT_KEY, promptOnLaunch ? 'true' : 'false');
+  } catch {
+    // ignore
+  }
+}
+
+export function getAboutBlankPromptPref(): boolean {
+  try {
+    const pref = localStorage.getItem(ABOUT_BLANK_PROMPT_KEY);
+    return pref !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Open in an about:blank cloaked tab (sets title to 'New Tab' by default)
+ */
+export function openAboutBlankCloaked(url?: string, customTitleOverride?: string): boolean {
+  if (typeof window === 'undefined') return false;
+  const currentUrl = url || window.location.href;
+  
+  let target = currentUrl;
+  try {
+    const parsed = new URL(currentUrl, window.location.origin);
+    parsed.searchParams.set('cloaked', 'true');
+    target = parsed.toString();
+  } catch {
+    target = currentUrl.includes('?') ? `${currentUrl}&cloaked=true` : `${currentUrl}?cloaked=true`;
+  }
+
   try {
     const win = window.open('about:blank', '_blank');
     if (!win) return false;
 
-    const currentCloak = getSavedTabCloak();
-    let title = 'Classes';
-    let icon = 'https://ssl.gstatic.com/classroom/favicon.png';
-
-    if (currentCloak.preset === 'custom') {
-      title = currentCloak.customTitle || 'Classes';
-      icon = currentCloak.customIcon || icon;
-    } else if (currentCloak.preset !== 'none') {
-      const p = CLOAK_PRESETS.find((item) => item.id === currentCloak.preset);
-      if (p) {
-        title = p.title;
-        icon = p.iconUrl;
-      }
-    }
+    // Default title is "New Tab" as requested
+    const title = customTitleOverride || 'New Tab';
+    const icon = 'https://www.google.com/favicon.ico';
 
     win.document.write(`
       <!DOCTYPE html>
-      <html>
+      <html lang="en">
         <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>${title}</title>
           <link rel="shortcut icon" href="${icon}" type="image/x-icon">
           <style>
@@ -195,17 +239,18 @@ export function openAboutBlankCloaked(url?: string): boolean {
               width: 100%;
               height: 100%;
               overflow: hidden;
-              background-color: #000;
+              background-color: #0b0f19;
             }
             iframe {
               border: none;
               width: 100%;
               height: 100%;
+              display: block;
             }
           </style>
         </head>
         <body>
-          <iframe src="${target}" allowfullscreen="true" allow="autoplay; fullscreen; gamepad"></iframe>
+          <iframe src="${target}" allowfullscreen="true" allow="autoplay; fullscreen; gamepad; clipboard-read; clipboard-write"></iframe>
         </body>
       </html>
     `);

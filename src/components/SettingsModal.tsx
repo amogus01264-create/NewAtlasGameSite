@@ -39,11 +39,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     sounds.playSelect();
   };
 
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    setUploadError(null);
     if (file) {
       if (file.size > 6 * 1024 * 1024) {
-        alert('Please choose an image under 6MB');
+        setUploadError('Please select an image smaller than 6MB.');
         return;
       }
       const reader = new FileReader();
@@ -114,6 +117,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <p className="text-[10px] text-slate-400 mt-1">
                     Upload any image from your computer to update your gamerpic.
                   </p>
+                  {uploadError && (
+                    <p className="text-[11px] text-red-400 font-semibold mt-1">
+                      {uploadError}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

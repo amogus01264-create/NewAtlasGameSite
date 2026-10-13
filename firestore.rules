@@ -43,11 +43,11 @@ service cloud.firestore {
       allow update: if isValidId(username)
         && isValidUserAccount(incoming())
         && incoming().username.lower() == existing().username.lower();
-      allow delete: if false;
+      allow delete: if isValidId(username);
     }
 
     match /friends/{friendId} {
-      allow read: if isValidId(friendId);
+      allow read: if true;
       allow create: if isValidId(friendId)
         && incoming().ownerUsername is string && incoming().ownerUsername.size() <= 32
         && incoming().username is string && incoming().username.size() <= 32;
@@ -56,7 +56,7 @@ service cloud.firestore {
     }
 
     match /friendRequests/{requestId} {
-      allow read: if isValidId(requestId);
+      allow read: if true;
       allow create: if isValidId(requestId)
         && incoming().fromUser is string && incoming().fromUser.size() <= 32
         && incoming().toUser is string && incoming().toUser.size() <= 32
@@ -67,7 +67,7 @@ service cloud.firestore {
     }
 
     match /streams/{streamId} {
-      allow read: if isValidId(streamId);
+      allow read: if true;
       allow create: if isValidId(streamId)
         && incoming().streamer is string
         && incoming().visibility in ['public', 'friends']
