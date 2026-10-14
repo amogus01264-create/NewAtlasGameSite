@@ -15,6 +15,7 @@ import {
 import { db } from './firebase';
 import { LiveStream, StreamMessage, UserProfile, Friend } from '../types';
 import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
+import { compressImageToDataUrl } from '../utils/imageCompressor';
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
@@ -48,14 +49,28 @@ export async function startScreenCapture(): Promise<MediaStream> {
     activeLocalMediaStream.getTracks().forEach((t) => t.stop());
   }
 
-  const mediaStream = await navigator.mediaDevices.getDisplayMedia({
-    video: {
-      frameRate: { ideal: 30, max: 60 },
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-    },
-    audio: true,
-  });
+  let mediaStream: MediaStream;
+  try {
+    // Attempt capturing video + audio without overconstrained dimensions
+    mediaStream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        frameRate: { ideal: 30, max: 60 },
+      },
+      audio: true,
+    });
+  } catch (err: any) {
+    if (err.name === 'NotAllowedError') {
+      throw err;
+    }
+    // If audio constraint failed (e.g. system doesn't support audio capture), fallback to video only
+    try {
+      mediaStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+      });
+    } catch (innerErr) {
+      throw innerErr;
+    }
+  }
 
   activeLocalMediaStream = mediaStream;
 
@@ -85,10 +100,24 @@ export async function createLiveStream(
   currentBroadcastingStreamId = streamId;
   const streamRef = doc(db, 'streams', streamId);
 
+  // Compress avatar pic to ensure streamerPic is tiny (< 3KB)
+  let cleanPic = MISSING_TEXTURE_DATA_URL;
+  if (user.gamerpic) {
+    if (user.gamerpic.startsWith('data:image')) {
+      try {
+        cleanPic = await compressImageToDataUrl(user.gamerpic, 64, 64, 0.7);
+      } catch {
+        cleanPic = user.gamerpic.length > 50000 ? MISSING_TEXTURE_DATA_URL : user.gamerpic;
+      }
+    } else {
+      cleanPic = user.gamerpic;
+    }
+  }
+
   const newStream: LiveStream = {
     id: streamId,
     streamer: user.gamertag,
-    streamerPic: user.gamerpic || MISSING_TEXTURE_DATA_URL,
+    streamerPic: cleanPic,
     title: title.trim() || `${user.gamertag}'s ${gameTitle} Stream`,
     gameTitle: gameTitle || 'Atlas Arcade',
     visibility,

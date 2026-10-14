@@ -250,3 +250,12 @@ export const safeLocalStorage = {
     }
   },
 };
+
+// Immediate auto-prune upon loading to clear any legacy storage overflows
+if (typeof window !== 'undefined') {
+  try {
+    safeLocalStorage.autoPruneStorage();
+  } catch {
+    // ignore
+  }
+}

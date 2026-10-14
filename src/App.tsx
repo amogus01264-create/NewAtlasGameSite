@@ -119,8 +119,9 @@ export default function App() {
     applyTabCloak(cloakConfig);
   }, [cloakConfig]);
 
-  // Initial Firestore connection validation
+  // Initial Firestore connection validation & auto-prune stale oversized storage
   useEffect(() => {
+    safeLocalStorage.autoPruneStorage();
     testConnection().catch(console.warn);
   }, []);
 
@@ -334,7 +335,7 @@ export default function App() {
         return prev;
       }
       const updated = prev.filter((g) => g.id !== id);
-      localStorage.setItem('atlas_custom_games', JSON.stringify(updated));
+      atlasStorage.setItemSync('atlas_custom_games', JSON.stringify(updated));
       return updated;
     });
   };
@@ -437,7 +438,7 @@ export default function App() {
           preservedPresets.unshift(preset);
         }
       }
-      localStorage.setItem('atlas_custom_games', JSON.stringify(preservedPresets));
+      atlasStorage.setItemSync('atlas_custom_games', JSON.stringify(preservedPresets));
       return preservedPresets;
     });
   };
@@ -452,7 +453,7 @@ export default function App() {
       saveRequestsForUser(userProfile.gamertag, []);
     }
     clearLocalAccountsCache();
-    localStorage.setItem('atlas_custom_games', JSON.stringify(PRESET_GAMES));
+    atlasStorage.setItemSync('atlas_custom_games', JSON.stringify(PRESET_GAMES));
   };
 
   // Tabs navigation
