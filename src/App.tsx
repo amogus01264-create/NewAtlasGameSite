@@ -20,6 +20,7 @@ import { SignInModal } from './components/SignInModal';
 import { MISSING_TEXTURE_DATA_URL } from './utils/assets';
 import { Radio, Trash2, AlertCircle, Tv, Loader2, X, AlertTriangle } from 'lucide-react';
 import { getSavedTabCloak, applyTabCloak, shouldPromptAboutBlankOnLaunch } from './services/tabCloak';
+import { atlasStorage, safeLocalStorage } from './services/storageService';
 import { testConnection } from './services/firebase';
 import { subscribeToActiveStreams, endLiveStream } from './services/streamingService';
 import {
@@ -140,7 +141,7 @@ export default function App() {
   // User's games: preserves preset games (Geometry Dash) and user-added custom games
   const [games, setGames] = useState<CustomGame[]>(() => {
     try {
-      const saved = localStorage.getItem('atlas_custom_games');
+      const saved = atlasStorage.getItemSync('atlas_custom_games') || safeLocalStorage.getItem('atlas_custom_games');
       if (saved) {
         const parsed: CustomGame[] = JSON.parse(saved);
         if (Array.isArray(parsed)) {
@@ -175,11 +176,11 @@ export default function App() {
               normalized.push(preset);
             }
           }
-          localStorage.setItem('atlas_custom_games', JSON.stringify(normalized));
+          atlasStorage.setItemSync('atlas_custom_games', JSON.stringify(normalized));
           return normalized;
         }
       }
-      localStorage.setItem('atlas_custom_games', JSON.stringify(PRESET_GAMES));
+      atlasStorage.setItemSync('atlas_custom_games', JSON.stringify(PRESET_GAMES));
       return PRESET_GAMES;
     } catch {
       return PRESET_GAMES;
@@ -224,6 +225,7 @@ export default function App() {
   }, [userProfile?.gamertag, userProfile?.isGuest]);
 
   // Realtime subscription to live game broadcasts on Atlas
+  const friendKeys = friends.map((f) => f.username.toLowerCase()).sort().join(',');
   useEffect(() => {
     const unsubStreams = subscribeToActiveStreams(userProfile, friends, (streams) => {
       setActiveStreams(streams);
@@ -235,11 +237,11 @@ export default function App() {
       }
     });
     return unsubStreams;
-  }, [userProfile?.gamertag, friends, myActiveStream?.id]);
+  }, [userProfile?.gamertag, friendKeys, myActiveStream?.id]);
 
   // Games persistence
   useEffect(() => {
-    localStorage.setItem('atlas_custom_games', JSON.stringify(games));
+    atlasStorage.setItemSync('atlas_custom_games', JSON.stringify(games));
   }, [games]);
 
   // Auth Actions

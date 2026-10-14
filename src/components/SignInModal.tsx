@@ -4,6 +4,7 @@ import { AtlasLogo } from './AtlasLogo';
 import { Upload, ChevronDown, AlertCircle, CheckCircle2, User, KeyRound, Sparkles, Loader2, Trash2, X } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
+import { compressImageToDataUrl } from '../utils/imageCompressor';
 import {
   getRegisteredAccounts,
   registerAccountAsync,
@@ -62,21 +63,20 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
     'https://images.unsplash.com/photo-1612287232230-05e83ec8b9ff?w=500&auto=format&fit=crop&q=80',
   ];
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 6 * 1024 * 1024) {
-        setErrorMessage('Please choose an image under 6MB');
+      if (file.size > 20 * 1024 * 1024) {
+        setErrorMessage('Please choose an image under 20MB');
         return;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setCustomImage(reader.result);
-          sounds.playSelect();
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageToDataUrl(file, 96, 96, 0.75);
+        setCustomImage(compressed);
+        sounds.playSelect();
+      } catch (err) {
+        console.warn('Avatar compression error:', err);
+      }
     }
   };
 

@@ -3,6 +3,7 @@ import { UserProfile, TabCloakConfig, TabCloakPreset } from '../types';
 import { X, Volume2, VolumeX, RotateCcw, User, ShieldCheck, Upload, Settings, Trash2, Shield, ExternalLink, Check } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 import { CLOAK_PRESETS, applyTabCloak, saveTabCloak } from '../services/tabCloak';
+import { compressImageToDataUrl } from '../utils/imageCompressor';
 
 interface SettingsModalProps {
   userProfile: UserProfile;
@@ -47,22 +48,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     setUploadError(null);
     if (file) {
-      if (file.size > 6 * 1024 * 1024) {
-        setUploadError('Please select an image smaller than 6MB.');
+      if (file.size > 20 * 1024 * 1024) {
+        setUploadError('Please select an image smaller than 20MB.');
         return;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          onUpdateProfile({ ...userProfile, gamerpic: reader.result });
-          sounds.playSelect();
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImageToDataUrl(file, 96, 96, 0.75);
+        onUpdateProfile({ ...userProfile, gamerpic: compressed });
+        sounds.playSelect();
+      } catch (err) {
+        console.warn('Avatar compression error:', err);
+      }
     }
   };
 

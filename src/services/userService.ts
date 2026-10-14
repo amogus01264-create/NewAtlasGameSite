@@ -13,16 +13,17 @@ import {
 import { db } from './firebase';
 import { Friend, FriendRequest, NetworkUser, RegisteredAccount, UserProfile } from '../types';
 import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
+import { atlasStorage, safeLocalStorage } from './storageService';
+import { compressImageToDataUrl } from '../utils/imageCompressor';
 
-// Local storage keys for caching and offline fallback
+// Storage keys for caching and offline fallback
 const STORAGE_ACCOUNTS_KEY = 'atlas_registered_accounts';
 const STORAGE_SESSION_KEY = 'atlas_saved_session';
 
-// --- Local Storage Helpers (Cache & Offline Support) ---
+// --- Local & High-Capacity Storage Helpers (Cache & Offline Support) ---
 export const getRegisteredAccounts = (): RegisteredAccount[] => {
   try {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
-    const raw = localStorage.getItem(STORAGE_ACCOUNTS_KEY);
+    const raw = atlasStorage.getItemSync(STORAGE_ACCOUNTS_KEY) || safeLocalStorage.getItem(STORAGE_ACCOUNTS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -31,10 +32,10 @@ export const getRegisteredAccounts = (): RegisteredAccount[] => {
 
 export const clearLocalAccountsCache = () => {
   try {
-    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-      localStorage.removeItem(STORAGE_ACCOUNTS_KEY);
-      localStorage.removeItem(STORAGE_SESSION_KEY);
-    }
+    atlasStorage.removeItem(STORAGE_ACCOUNTS_KEY);
+    atlasStorage.removeItem(STORAGE_SESSION_KEY);
+    safeLocalStorage.removeItem(STORAGE_ACCOUNTS_KEY);
+    safeLocalStorage.removeItem(STORAGE_SESSION_KEY);
   } catch {
     // ignore
   }
@@ -42,14 +43,14 @@ export const clearLocalAccountsCache = () => {
 
 const cacheAccountLocally = (account: RegisteredAccount) => {
   try {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
     const current = getRegisteredAccounts();
     const clean = account.username.toLowerCase();
     const updated = current.filter((a) => a.username.toLowerCase() !== clean);
     updated.push(account);
-    localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(updated));
+    const serialized = JSON.stringify(updated);
+    atlasStorage.setItemSync(STORAGE_ACCOUNTS_KEY, serialized);
   } catch {
-    // ignore local storage errors
+    // ignore
   }
 };
 
@@ -116,10 +117,15 @@ export const registerAccountAsync = async (
       return { success: false, error: 'Username is already taken by another player.' };
     }
 
+    // Automatically compress avatar to tiny lightweight ~2KB size
+    const optimizedPic = account.gamerpic?.startsWith('data:image')
+      ? await compressImageToDataUrl(account.gamerpic, 96, 96, 0.75)
+      : (account.gamerpic || MISSING_TEXTURE_DATA_URL);
+
     const accountData: RegisteredAccount = {
       username: clean,
       password: account.password,
-      gamerpic: account.gamerpic || MISSING_TEXTURE_DATA_URL,
+      gamerpic: optimizedPic,
       birthday: {
         month: account.birthday.month,
         day: account.birthday.day,
@@ -356,7 +362,7 @@ export const authenticateUser = (
 
 export const getSavedSession = (): UserProfile | null => {
   try {
-    const raw = localStorage.getItem(STORAGE_SESSION_KEY);
+    const raw = atlasStorage.getItemSync(STORAGE_SESSION_KEY) || safeLocalStorage.getItem(STORAGE_SESSION_KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -365,12 +371,11 @@ export const getSavedSession = (): UserProfile | null => {
 
 export const saveSession = (profile: UserProfile | null) => {
   try {
-    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-      if (profile) {
-        localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(profile));
-      } else {
-        localStorage.removeItem(STORAGE_SESSION_KEY);
-      }
+    if (profile) {
+      const serialized = JSON.stringify(profile);
+      atlasStorage.setItemSync(STORAGE_SESSION_KEY, serialized);
+    } else {
+      atlasStorage.removeItem(STORAGE_SESSION_KEY);
     }
   } catch {
     // ignore
@@ -473,13 +478,13 @@ export const findNetworkUser = (username: string): NetworkUser | null => {
   return all.find((u) => u.username.toLowerCase() === clean) || null;
 };
 
-// --- Real-time Friends & Requests (Firestore + Local Sync) ---
+// --- Real-time Friends & Requests (Firestore + High-Capacity Local Sync) ---
 
 export const getFriendsForUser = (username: string): Friend[] => {
   if (!username) return [];
   try {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
-    const raw = localStorage.getItem(`atlas_friends_${username.trim().toLowerCase()}`);
+    const key = `atlas_friends_${username.trim().toLowerCase()}`;
+    const raw = atlasStorage.getItemSync(key) || safeLocalStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -489,9 +494,9 @@ export const getFriendsForUser = (username: string): Friend[] => {
 export const saveFriendsForUser = (username: string, friends: Friend[]) => {
   if (!username) return;
   try {
-    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-      localStorage.setItem(`atlas_friends_${username.trim().toLowerCase()}`, JSON.stringify(friends));
-    }
+    const key = `atlas_friends_${username.trim().toLowerCase()}`;
+    const serialized = JSON.stringify(friends);
+    atlasStorage.setItemSync(key, serialized);
   } catch {
     // ignore
   }
@@ -500,8 +505,8 @@ export const saveFriendsForUser = (username: string, friends: Friend[]) => {
 export const getRequestsForUser = (username: string): FriendRequest[] => {
   if (!username) return [];
   try {
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') return [];
-    const raw = localStorage.getItem(`atlas_requests_${username.trim().toLowerCase()}`);
+    const key = `atlas_requests_${username.trim().toLowerCase()}`;
+    const raw = atlasStorage.getItemSync(key) || safeLocalStorage.getItem(key);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
@@ -511,9 +516,9 @@ export const getRequestsForUser = (username: string): FriendRequest[] => {
 export const saveRequestsForUser = (username: string, requests: FriendRequest[]) => {
   if (!username) return;
   try {
-    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
-      localStorage.setItem(`atlas_requests_${username.trim().toLowerCase()}`, JSON.stringify(requests));
-    }
+    const key = `atlas_requests_${username.trim().toLowerCase()}`;
+    const serialized = JSON.stringify(requests);
+    atlasStorage.setItemSync(key, serialized);
   } catch {
     // ignore
   }
@@ -638,12 +643,19 @@ export const subscribeToRequests = (
 // Send Friend Request in Firestore
 export const sendFriendRequestCloud = async (req: FriendRequest): Promise<void> => {
   const reqRef = doc(db, 'friendRequests', req.id);
+  const optFromPic = req.fromPic?.startsWith('data:image')
+    ? await compressImageToDataUrl(req.fromPic, 96, 96, 0.75)
+    : (req.fromPic || MISSING_TEXTURE_DATA_URL);
+  const optToPic = req.toPic?.startsWith('data:image')
+    ? await compressImageToDataUrl(req.toPic, 96, 96, 0.75)
+    : (req.toPic || '');
+
   await setDoc(reqRef, {
     id: req.id,
     fromUser: req.fromUser.trim().toLowerCase(),
     toUser: req.toUser.trim().toLowerCase(),
-    fromPic: req.fromPic || MISSING_TEXTURE_DATA_URL,
-    toPic: req.toPic || '',
+    fromPic: optFromPic,
+    toPic: optToPic,
     timestamp: req.timestamp || new Date().toISOString(),
     status: req.status || 'pending',
   });
@@ -657,6 +669,13 @@ export const acceptFriendRequestCloud = async (
   const userA = currentUser.gamertag.trim().toLowerCase();
   const userB = req.fromUser.trim().toLowerCase();
 
+  const optPicA = req.fromPic?.startsWith('data:image')
+    ? await compressImageToDataUrl(req.fromPic, 96, 96, 0.75)
+    : (req.fromPic || MISSING_TEXTURE_DATA_URL);
+  const optPicB = currentUser.gamerpic?.startsWith('data:image')
+    ? await compressImageToDataUrl(currentUser.gamerpic, 96, 96, 0.75)
+    : (currentUser.gamerpic || MISSING_TEXTURE_DATA_URL);
+
   // Create friend record for user A
   const friendIdA = `${userA}_${userB}`;
   const friendRefA = doc(db, 'friends', friendIdA);
@@ -666,7 +685,7 @@ export const acceptFriendRequestCloud = async (
     username: req.fromUser,
     status: 'online',
     avatarBg: '#00A2FF',
-    avatarPic: req.fromPic || MISSING_TEXTURE_DATA_URL,
+    avatarPic: optPicA,
     addedAt: new Date().toISOString(),
   });
 
@@ -679,7 +698,7 @@ export const acceptFriendRequestCloud = async (
     username: currentUser.gamertag,
     status: 'online',
     avatarBg: '#00A2FF',
-    avatarPic: currentUser.gamerpic || MISSING_TEXTURE_DATA_URL,
+    avatarPic: optPicB,
     addedAt: new Date().toISOString(),
   });
 

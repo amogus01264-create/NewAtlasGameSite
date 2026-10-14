@@ -26,6 +26,12 @@ const RTC_CONFIG: RTCConfiguration = {
 // Global active local stream reference for the current tab
 let activeLocalMediaStream: MediaStream | null = null;
 let broadcastSnapshotInterval: any = null;
+let broadcastPingInterval: any = null;
+let currentBroadcastingStreamId: string | null = null;
+let unloadCleanupHandler: (() => void) | null = null;
+
+// Track all active Firestore snapshot unsubscribe callbacks for the broadcaster session
+const broadcasterUnsubs: (() => void)[] = [];
 
 // Track peer connections on the broadcaster side: viewerId -> RTCPeerConnection
 const activeViewerPeerConnections: Map<string, RTCPeerConnection> = new Map();
@@ -52,6 +58,17 @@ export async function startScreenCapture(): Promise<MediaStream> {
   });
 
   activeLocalMediaStream = mediaStream;
+
+  // Auto-terminate broadcast if the user clicks the browser's "Stop Sharing" UI
+  const videoTrack = mediaStream.getVideoTracks()[0];
+  if (videoTrack) {
+    videoTrack.onended = () => {
+      if (currentBroadcastingStreamId) {
+        endLiveStream(currentBroadcastingStreamId).catch(() => null);
+      }
+    };
+  }
+
   return mediaStream;
 }
 
@@ -65,6 +82,7 @@ export async function createLiveStream(
   visibility: 'public' | 'friends'
 ): Promise<LiveStream> {
   const streamId = `stream-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  currentBroadcastingStreamId = streamId;
   const streamRef = doc(db, 'streams', streamId);
 
   const newStream: LiveStream = {
@@ -81,7 +99,33 @@ export async function createLiveStream(
 
   await setDoc(streamRef, newStream);
 
-  // Start periodic live snapshot updater (provides 1-2s fallback live preview)
+  // Sync to high-capacity server storage
+  try {
+    fetch('/api/storage/streams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newStream),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
+
+  // Hook tab closing / navigation beacon so streams never get stuck "live"
+  const unloadHandler = () => {
+    try {
+      navigator.sendBeacon(`/api/storage/streams/${streamId}/end`);
+    } catch {
+      // ignore
+    }
+  };
+  window.addEventListener('beforeunload', unloadHandler);
+  window.addEventListener('pagehide', unloadHandler);
+  unloadCleanupHandler = () => {
+    window.removeEventListener('beforeunload', unloadHandler);
+    window.removeEventListener('pagehide', unloadHandler);
+  };
+
+  // Start periodic live snapshot updater (safe interval, quota-protected)
   startLiveSnapshotBroadcaster(streamId);
 
   // Listen for viewer join signals to establish WebRTC peer connections
@@ -91,11 +135,17 @@ export async function createLiveStream(
 }
 
 /**
- * Take live snapshots from the local media stream to update previewFrame
+ * Take live snapshots from the local media stream to update previewFrame.
+ * Uses ultra-compact 160x90 dimensions and 0.35 JPEG quality (~1.5KB).
+ * Captures initial snapshot after 1.5s, then syncs to server storage.
+ * Strictly prevents Firestore quota depletion and high document write frequencies.
  */
 function startLiveSnapshotBroadcaster(streamId: string) {
   if (broadcastSnapshotInterval) {
     clearInterval(broadcastSnapshotInterval);
+  }
+  if (broadcastPingInterval) {
+    clearInterval(broadcastPingInterval);
   }
 
   const video = document.createElement('video');
@@ -104,33 +154,85 @@ function startLiveSnapshotBroadcaster(streamId: string) {
   video.play().catch(() => null);
 
   const canvas = document.createElement('canvas');
-  canvas.width = 480;
-  canvas.height = 270;
+  canvas.width = 160;
+  canvas.height = 90;
   const ctx = canvas.getContext('2d');
 
+  // Initial snapshot to set stream thumbnail in Firestore
+  setTimeout(async () => {
+    if (!activeLocalMediaStream || !activeLocalMediaStream.active) return;
+    if (video.videoWidth > 0 && ctx) {
+      try {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const previewUrl = canvas.toDataURL('image/jpeg', 0.35);
+        const streamRef = doc(db, 'streams', streamId);
+        await updateDoc(streamRef, { previewFrame: previewUrl }).catch(() => null);
+
+        fetch(`/api/storage/streams/${streamId}/snapshot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ previewFrame: previewUrl }),
+        }).catch(() => null);
+      } catch {
+        // ignore
+      }
+    }
+  }, 1500);
+
+  // Periodic server snapshot sync every 25 seconds (safe, zero Firestore quota cost)
   broadcastSnapshotInterval = setInterval(async () => {
     if (!activeLocalMediaStream || !activeLocalMediaStream.active) return;
     if (video.videoWidth > 0 && ctx) {
       try {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const previewUrl = canvas.toDataURL('image/jpeg', 0.55);
-        const streamRef = doc(db, 'streams', streamId);
-        await updateDoc(streamRef, { previewFrame: previewUrl }).catch(() => null);
+        const previewUrl = canvas.toDataURL('image/jpeg', 0.35);
+
+        fetch(`/api/storage/streams/${streamId}/snapshot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ previewFrame: previewUrl }),
+        }).catch(() => null);
       } catch {
         // ignore frame capture error
       }
     }
-  }, 3500);
+  }, 25000);
+
+  // Lightweight server keep-alive ping every 10 seconds
+  broadcastPingInterval = setInterval(() => {
+    fetch(`/api/storage/streams/${streamId}/ping`, { method: 'POST' }).catch(() => null);
+  }, 10000);
 }
 
 /**
- * End a live stream session
+ * End a live stream session and clean up all resources
  */
 export async function endLiveStream(streamId: string): Promise<void> {
+  currentBroadcastingStreamId = null;
+
   if (broadcastSnapshotInterval) {
     clearInterval(broadcastSnapshotInterval);
     broadcastSnapshotInterval = null;
   }
+  if (broadcastPingInterval) {
+    clearInterval(broadcastPingInterval);
+    broadcastPingInterval = null;
+  }
+
+  if (unloadCleanupHandler) {
+    unloadCleanupHandler();
+    unloadCleanupHandler = null;
+  }
+
+  // Clean up all broadcaster Firestore listeners
+  broadcasterUnsubs.forEach((unsub) => {
+    try {
+      unsub();
+    } catch {
+      // ignore
+    }
+  });
+  broadcasterUnsubs.length = 0;
 
   if (activeLocalMediaStream) {
     activeLocalMediaStream.getTracks().forEach((track) => track.stop());
@@ -146,6 +248,10 @@ export async function endLiveStream(streamId: string): Promise<void> {
       status: 'ended',
       endedAt: new Date().toISOString(),
     });
+
+    fetch(`/api/storage/streams/${streamId}`, {
+      method: 'DELETE',
+    }).catch(() => null);
   } catch (err) {
     console.warn('Error marking stream as ended:', err);
   }
@@ -158,7 +264,7 @@ function listenForViewersAsBroadcaster(streamId: string) {
   const signalsCol = collection(db, 'streams', streamId, 'signals');
   const q = query(signalsCol, where('type', '==', 'viewer-join'));
 
-  onSnapshot(q, (snapshot) => {
+  const unsub = onSnapshot(q, (snapshot) => {
     snapshot.docChanges().forEach(async (change) => {
       if (change.type === 'added') {
         const data = change.doc.data();
@@ -170,6 +276,7 @@ function listenForViewersAsBroadcaster(streamId: string) {
       }
     });
   });
+  broadcasterUnsubs.push(unsub);
 }
 
 /**
@@ -216,20 +323,21 @@ async function handleViewerJoinOffer(streamId: string, viewerId: string) {
 
   // Listen for viewer's answer
   const answerRef = doc(db, 'streams', streamId, 'signals', `answer-${viewerId}`);
-  const unsub = onSnapshot(answerRef, async (snap) => {
+  const unsubAnswer = onSnapshot(answerRef, async (snap) => {
     if (snap.exists()) {
       const answerData = snap.data();
       if (answerData?.sdp && pc.signalingState !== 'stable') {
         await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerData.sdp }));
-        unsub();
+        unsubAnswer();
       }
     }
   });
+  broadcasterUnsubs.push(unsubAnswer);
 
   // Listen for viewer ICE candidates
   const candidatesCol = collection(db, 'streams', streamId, 'signals');
   const qCand = query(candidatesCol, where('target', '==', 'host'), where('from', '==', viewerId));
-  onSnapshot(qCand, (snap) => {
+  const unsubCand = onSnapshot(qCand, (snap) => {
     snap.docChanges().forEach(async (c) => {
       if (c.type === 'added') {
         const candData = c.doc.data();
@@ -243,6 +351,7 @@ async function handleViewerJoinOffer(streamId: string, viewerId: string) {
       }
     });
   });
+  broadcasterUnsubs.push(unsubCand);
 }
 
 /**
@@ -363,6 +472,12 @@ export function subscribeToActiveStreams(
         const data = d.data() as LiveStream;
         const streamerLower = data.streamer.toLowerCase();
 
+        const startedTime = new Date(data.startedAt || 0).getTime();
+        // Skip stale abandoned streams older than 4 hours
+        if (Date.now() - startedTime > 4 * 60 * 60 * 1000) {
+          return;
+        }
+
         // If public: visible to everyone
         // If friends: visible if streamer is self OR streamer is in friends list
         if (data.visibility === 'public') {
@@ -403,29 +518,84 @@ export function subscribeToStream(
 }
 
 /**
- * Subscribe to stream live chat messages
+ * Subscribe to stream live chat messages with multi-layer resilience
+ * (Firestore real-time listener + BroadcastChannel + Server storage fallback)
  */
 export function subscribeToStreamChat(
   streamId: string,
   callback: (messages: StreamMessage[]) => void
 ): () => void {
+  const messageMap = new Map<string, StreamMessage>();
+
+  const emit = () => {
+    const sorted = Array.from(messageMap.values()).sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    callback(sorted);
+  };
+
+  // 1. Initial & periodic sync from server memory storage
+  const syncFromServer = async () => {
+    try {
+      const res = await fetch(`/api/storage/streams/${streamId}/messages`);
+      if (res.ok) {
+        const serverMsgs: StreamMessage[] = await res.json();
+        let changed = false;
+        for (const m of serverMsgs) {
+          if (!messageMap.has(m.id)) {
+            messageMap.set(m.id, m);
+            changed = true;
+          }
+        }
+        if (changed) emit();
+      }
+    } catch {
+      // ignore
+    }
+  };
+  syncFromServer();
+  const pollInterval = setInterval(syncFromServer, 4000);
+
+  // 2. BroadcastChannel for zero-latency cross-tab communication
+  let channel: BroadcastChannel | null = null;
+  try {
+    channel = new BroadcastChannel(`atlas_chat_${streamId}`);
+    channel.onmessage = (event) => {
+      const msg = event.data as StreamMessage;
+      if (msg && msg.id && !messageMap.has(msg.id)) {
+        messageMap.set(msg.id, msg);
+        emit();
+      }
+    };
+  } catch {
+    // BroadcastChannel unsupported
+  }
+
+  // 3. Firestore onSnapshot real-time subscription
   const messagesCol = collection(db, 'streams', streamId, 'messages');
   const q = query(messagesCol, orderBy('timestamp', 'asc'), limit(100));
 
-  return onSnapshot(
+  const unsubFirestore = onSnapshot(
     q,
     (snap) => {
-      const list: StreamMessage[] = [];
       snap.forEach((d) => {
-        list.push(d.data() as StreamMessage);
+        const msg = d.data() as StreamMessage;
+        messageMap.set(msg.id, msg);
       });
-      callback(list);
+      emit();
     },
     (err) => {
-      console.warn('subscribeToStreamChat error:', err);
-      callback([]);
+      console.warn('subscribeToStreamChat Firestore notice:', err);
     }
   );
+
+  return () => {
+    unsubFirestore();
+    clearInterval(pollInterval);
+    if (channel) {
+      channel.close();
+    }
+  };
 }
 
 /**
@@ -451,6 +621,27 @@ export async function sendStreamChatMessage(
     timestamp: new Date().toISOString(),
   };
 
+  // 1. Post to BroadcastChannel immediately for instant local reflection
+  try {
+    const channel = new BroadcastChannel(`atlas_chat_${streamId}`);
+    channel.postMessage(newMsg);
+    setTimeout(() => channel.close(), 100);
+  } catch {
+    // ignore
+  }
+
+  // 2. Post to server-side resilient storage
+  try {
+    fetch(`/api/storage/streams/${streamId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newMsg),
+    }).catch(() => null);
+  } catch {
+    // ignore
+  }
+
+  // 3. Write to Firestore document
   await setDoc(msgRef, newMsg);
 }
 

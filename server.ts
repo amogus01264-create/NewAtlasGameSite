@@ -11,11 +11,137 @@ async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const isProd = process.env.NODE_ENV === 'production';
 
-  app.use(express.json());
+  app.use(express.json({ limit: '25mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
   // API: Health check
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // High-Capacity Server-Side Storage Registry for Streams and Users
+  interface ServerStream {
+    id: string;
+    streamer: string;
+    streamerPic: string;
+    title: string;
+    gameTitle: string;
+    visibility: 'public' | 'friends';
+    status: 'live' | 'ended';
+    startedAt: string;
+    viewerCount: number;
+    previewFrame?: string;
+    lastPing?: number;
+  }
+
+  const serverStreamsMap = new Map<string, ServerStream>();
+
+  // Cleanup stale streams after 30 seconds of inactivity
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, s] of serverStreamsMap.entries()) {
+      if (s.lastPing && now - s.lastPing > 30000 && s.status === 'live') {
+        s.status = 'ended';
+      }
+    }
+  }, 10000);
+
+  // API: Get high-capacity active streams
+  app.get('/api/storage/streams', (_req, res) => {
+    const active = Array.from(serverStreamsMap.values()).filter((s) => s.status === 'live');
+    res.json(active);
+  });
+
+  // API: Register or update stream on server
+  app.post('/api/storage/streams', (req, res) => {
+    const stream = req.body as ServerStream;
+    if (!stream || !stream.id) {
+      return res.status(400).json({ error: 'Missing stream id' });
+    }
+    stream.lastPing = Date.now();
+    serverStreamsMap.set(stream.id, stream);
+    res.json({ success: true, stream });
+  });
+
+  // API: Update live preview snapshot
+  app.post('/api/storage/streams/:id/snapshot', (req, res) => {
+    const { id } = req.params;
+    const { previewFrame } = req.body;
+    const s = serverStreamsMap.get(id);
+    if (s) {
+      s.previewFrame = previewFrame;
+      s.lastPing = Date.now();
+    }
+    res.json({ success: true });
+  });
+
+  // API: End stream on server (DELETE and POST for navigator.sendBeacon)
+  const handleEndStream = (req: express.Request, res: express.Response) => {
+    const { id } = req.params;
+    const s = serverStreamsMap.get(id);
+    if (s) {
+      s.status = 'ended';
+      // Auto-prune ended stream from memory after 30 seconds
+      setTimeout(() => serverStreamsMap.delete(id), 30000);
+    }
+    res.json({ success: true });
+  };
+  app.delete('/api/storage/streams/:id', handleEndStream);
+  app.post('/api/storage/streams/:id/end', handleEndStream);
+
+  // API: Stream keep-alive ping
+  app.post('/api/storage/streams/:id/ping', (req, res) => {
+    const { id } = req.params;
+    const s = serverStreamsMap.get(id);
+    if (s) {
+      s.lastPing = Date.now();
+    }
+    res.json({ success: true, timestamp: Date.now() });
+  });
+
+  // Server-side stream chat store
+  interface ServerChatMessage {
+    id: string;
+    streamId: string;
+    sender: string;
+    senderPic?: string;
+    text: string;
+    timestamp: string;
+  }
+  const serverStreamMessagesMap = new Map<string, ServerChatMessage[]>();
+
+  // API: Get stream chat messages
+  app.get('/api/storage/streams/:id/messages', (req, res) => {
+    const { id } = req.params;
+    const msgs = serverStreamMessagesMap.get(id) || [];
+    res.json(msgs);
+  });
+
+  // API: Post stream chat message
+  app.post('/api/storage/streams/:id/messages', (req, res) => {
+    const { id } = req.params;
+    const msg = req.body as ServerChatMessage;
+    if (!msg || !msg.text) {
+      return res.status(400).json({ error: 'Invalid message' });
+    }
+    const current = serverStreamMessagesMap.get(id) || [];
+    current.push(msg);
+    // Keep only last 200 messages
+    if (current.length > 200) {
+      current.splice(0, current.length - 200);
+    }
+    serverStreamMessagesMap.set(id, current);
+    res.json({ success: true, message: msg });
+  });
+
+  // API: Storage capacity & health status
+  app.get('/api/storage/health', (_req, res) => {
+    res.json({
+      status: 'ok',
+      activeStreams: Array.from(serverStreamsMap.values()).filter((s) => s.status === 'live').length,
+      memoryUsage: process.memoryUsage(),
+      timestamp: new Date().toISOString(),
+    });
   });
 
   // API: Test whether a URL has X-Frame-Options or frame-ancestors CSP
@@ -157,6 +283,14 @@ async function startServer() {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   }
+
+  // Global Error Handler to safeguard server process against any unhandled payload errors
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('Server gracefully caught error:', err?.message || err);
+    if (!res.headersSent) {
+      res.status(err?.status || 500).json({ error: err?.message || 'Server error' });
+    }
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server listening on http://0.0.0.0:${PORT}`);
