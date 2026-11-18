@@ -577,6 +577,10 @@ export async function resolveFullStream(
     if (!cand.streamUrl) return false;
     const candTitle = normClientMusicStr(cand.title);
     const candCombined = `${candTitle} ${normClientMusicStr(cand.artist)}`;
+    const unwanted = ['remix', 'edit', 'bootleg', 'flip', 'cover', 'slowed', 'nightcore', 'sped', 'karaoke', 'instrumental'];
+    if (unwanted.some((q) => !reqTitleNorm.includes(q) && new RegExp(`(?:^| )${q}(?: |$)`).test(candCombined))) {
+      return false;
+    }
     const titleOk =
       candTitle === reqTitleNorm ||
       (reqTitleTokens.length > 0 &&

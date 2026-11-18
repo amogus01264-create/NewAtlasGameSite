@@ -584,7 +584,7 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
 
   return (
     <div
-      className="fixed bottom-0 left-0 w-px h-px opacity-0 pointer-events-none overflow-hidden"
+      className="fixed bottom-0 right-0 w-[200px] h-[200px] opacity-0 pointer-events-none overflow-hidden -z-50"
       aria-hidden="true"
     >
       <audio
