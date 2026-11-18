@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CustomGame } from '../types';
 import { Plus, Play, Trash2, Search, ExternalLink, ShieldCheck, AlertTriangle, X } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
+import { isGamePreset } from '../App';
 
 interface GamesScreenProps {
   games: CustomGame[];
@@ -22,7 +23,7 @@ export const GamesScreen: React.FC<GamesScreenProps> = ({
   const [selectedGenre, setSelectedGenre] = useState('All');
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-  const customGamesCount = games.filter((g) => !g.isPreset).length;
+  const customGamesCount = games.filter((g) => !isGamePreset(g)).length;
 
   const genres = ['All', 'Arcade', 'Action', 'Adventure', 'Puzzle', 'Sports', 'Strategy', 'Retro'];
 
@@ -47,14 +48,14 @@ export const GamesScreen: React.FC<GamesScreenProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {customGamesCount > 0 && onClearCustomGames && (
             <button
               onClick={() => {
                 sounds.playSelect();
                 setShowClearConfirm(true);
               }}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-700/50 text-amber-300 text-xs font-black uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-700/50 text-amber-300 text-xs font-black uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 whitespace-nowrap shrink-0 cursor-pointer"
               title="Clear all user-added custom games while keeping preset games"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -67,7 +68,7 @@ export const GamesScreen: React.FC<GamesScreenProps> = ({
               sounds.playSelect();
               onOpenAddGame();
             }}
-            className="flex items-center gap-2 px-5 py-2.5 bg-[#00B06F] hover:bg-[#00c87e] text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 w-fit cursor-pointer"
+            className="flex items-center gap-2 px-5 py-2.5 bg-[#00B06F] hover:bg-[#00c87e] text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-95 w-fit whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>Add Custom Game</span>
@@ -154,7 +155,7 @@ export const GamesScreen: React.FC<GamesScreenProps> = ({
                 </div>
 
                 {/* Preset Badge or Delete button */}
-                {game.isPreset ? (
+                {isGamePreset(game) ? (
                   <span
                     className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-[#00A2FF]/20 border border-[#00A2FF]/60 text-[#00A2FF] text-[10px] font-black uppercase tracking-wider backdrop-blur-sm shadow flex items-center gap-1"
                     title="Preset Game (Protected)"
@@ -231,11 +232,7 @@ export const GamesScreen: React.FC<GamesScreenProps> = ({
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed mb-5">
-              Are you sure you want to remove all <strong className="text-white font-bold">{customGamesCount} custom added</strong> {customGamesCount === 1 ? 'game' : 'games'}?
-              <br /><br />
-              <span className="text-emerald-400 font-semibold">
-                Preset games (such as Geometry Dash) will NOT be cleared or affected.
-              </span>
+              Are you sure you want to remove all <strong className="text-white font-bold">{games.length}</strong> {games.length === 1 ? 'game' : 'games'} from your library?
             </p>
 
             <div className="flex items-center justify-end gap-2">

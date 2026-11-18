@@ -77,11 +77,7 @@ export const StartStreamModal: React.FC<StartStreamModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error('Failed to start stream:', err);
-      if (err.name === 'NotAllowedError') {
-        setErrorMessage('Screen capture permission was cancelled. Please allow screen sharing to stream.');
-      } else {
-        setErrorMessage(err.message || 'Unable to capture game screen. Please try again.');
-      }
+      setErrorMessage(err?.message || 'Unable to start Atlas website broadcast. Please try again.');
       sounds.playBack();
     } finally {
       setIsStarting(false);
@@ -154,7 +150,7 @@ export const StartStreamModal: React.FC<StartStreamModalProps> = ({
                   {g.title}
                 </option>
               ))}
-              <option value="Other Game / Freeplay">Other Game / Freeplay</option>
+              <option value="Atlas Website">Atlas Website / Arcade</option>
             </select>
           </div>
 
@@ -220,7 +216,7 @@ export const StartStreamModal: React.FC<StartStreamModalProps> = ({
           <div className="p-3 bg-[#111624] rounded-xl border border-slate-800 flex items-start gap-2.5 text-slate-400 text-xs leading-relaxed">
             <Tv className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
             <div>
-              When you click <strong>Start Streaming</strong>, select your game tab or screen window in the browser popup. Make sure to check <em>Share audio</em> to broadcast sound!
+              Streams directly from the <strong>Atlas website</strong> at 30 FPS — no browser screen picker popup and external apps are never captured.
             </div>
           </div>
 
@@ -265,7 +261,7 @@ export const StartStreamModal: React.FC<StartStreamModalProps> = ({
             {isStarting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Requesting Screen Share...</span>
+                <span>Starting Atlas Tab Stream...</span>
               </>
             ) : activeStream && activeStream.status === 'live' ? (
               <>

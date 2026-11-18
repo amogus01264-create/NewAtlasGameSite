@@ -41,48 +41,359 @@ export function getActiveLocalStream(): MediaStream | null {
   return activeLocalMediaStream;
 }
 
+// Broadcast compositor state & teardown hook
+let stopWebsiteCaptureLoop: (() => void) | null = null;
+
+export interface AtlasBroadcastContext {
+  gamertag: string;
+  currentTab: string;
+  activeGameTitle?: string;
+  activeGameGenre?: string;
+  currentTrackTitle?: string;
+  currentTrackArtist?: string;
+  currentTrackSource?: string;
+  isMusicPlaying?: boolean;
+  gamesCount: number;
+}
+
+let latestBroadcastContext: AtlasBroadcastContext = {
+  gamertag: 'Player',
+  currentTab: 'HOME',
+  gamesCount: 0,
+};
+
+export function updateAtlasBroadcastContext(ctx: AtlasBroadcastContext): void {
+  latestBroadcastContext = ctx;
+}
+
 /**
- * Capture player's screen, browser tab, or game window with audio
+ * Find the largest playable <canvas> or <video> inside any open same-origin game iframe or main page
+ */
+function findSameOriginPlayableSurface(): HTMLCanvasElement | HTMLVideoElement | null {
+  const inspectDoc = (doc: Document, depth = 0): HTMLCanvasElement | HTMLVideoElement | null => {
+    if (depth > 2) return null;
+    try {
+      const canvases = Array.from(doc.querySelectorAll('canvas'));
+      let bestCanvas: HTMLCanvasElement | null = null;
+      let bestArea = 0;
+      for (const c of canvases) {
+        if (c.dataset.atlasBroadcastSurface === '1') continue;
+        const rect = c.getBoundingClientRect();
+        const area = rect.width * rect.height;
+        if (rect.width >= 120 && rect.height >= 120 && area > bestArea) {
+          bestCanvas = c;
+          bestArea = area;
+        }
+      }
+      if (bestCanvas) return bestCanvas;
+
+      const videos = Array.from(doc.querySelectorAll('video'));
+      for (const v of videos) {
+        if (v.dataset.atlasBroadcastBridge === '1') continue;
+        const rect = v.getBoundingClientRect();
+        if (rect.width >= 120 && rect.height >= 120 && v.readyState >= 2) {
+          return v;
+        }
+      }
+
+      const frames = Array.from(doc.querySelectorAll('iframe'));
+      for (const frame of frames) {
+        try {
+          const innerDoc = frame.contentDocument || frame.contentWindow?.document;
+          if (innerDoc) {
+            const found = inspectDoc(innerDoc, depth + 1);
+            if (found) return found;
+          }
+        } catch {
+          // Cross-origin iframe cannot be pixel-read by browser security policy
+        }
+      }
+    } catch {}
+    return null;
+  };
+
+  return inspectDoc(document, 0);
+}
+
+/**
+ * Capture ONLY this Atlas website directly in-page via Canvas 30fps stream.
+ * Never calls getDisplayMedia, so it works cleanly inside restricted iframes
+ * and never exposes external desktop apps or screens.
  */
 export async function startScreenCapture(): Promise<MediaStream> {
+  if (stopWebsiteCaptureLoop) {
+    stopWebsiteCaptureLoop();
+    stopWebsiteCaptureLoop = null;
+  }
   if (activeLocalMediaStream) {
     activeLocalMediaStream.getTracks().forEach((t) => t.stop());
+    activeLocalMediaStream = null;
   }
 
-  let mediaStream: MediaStream;
-  try {
-    // Attempt capturing video + audio without overconstrained dimensions
-    mediaStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        frameRate: { ideal: 30, max: 60 },
-      },
-      audio: true,
-    });
-  } catch (err: any) {
-    if (err.name === 'NotAllowedError') {
-      throw err;
+  const W = 1280;
+  const H = 720;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  canvas.dataset.atlasBroadcastSurface = '1';
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx || typeof canvas.captureStream !== 'function') {
+    throw new Error('This browser does not support in-page canvas streaming.');
+  }
+
+  let running = true;
+  const startedAt = Date.now();
+  let mirroredCanvas: HTMLCanvasElement | null = null;
+  let bridgeVideo: HTMLVideoElement | null = null;
+  let bridgeStream: MediaStream | null = null;
+
+  const cleanupBridge = () => {
+    if (bridgeStream) {
+      bridgeStream.getTracks().forEach((t) => t.stop());
+      bridgeStream = null;
     }
-    // If audio constraint failed (e.g. system doesn't support audio capture), fallback to video only
+    if (bridgeVideo) {
+      bridgeVideo.pause();
+      bridgeVideo.srcObject = null;
+      bridgeVideo = null;
+    }
+    mirroredCanvas = null;
+  };
+
+  const ensureCanvasBridge = (target: HTMLCanvasElement) => {
+    if (mirroredCanvas === target) return;
+    cleanupBridge();
+    mirroredCanvas = target;
     try {
-      mediaStream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-      });
-    } catch (innerErr) {
-      throw innerErr;
+      if (typeof target.captureStream === 'function') {
+        bridgeStream = target.captureStream(30);
+        bridgeVideo = document.createElement('video');
+        bridgeVideo.dataset.atlasBroadcastBridge = '1';
+        bridgeVideo.muted = true;
+        bridgeVideo.playsInline = true;
+        bridgeVideo.srcObject = bridgeStream;
+        bridgeVideo.play().catch(() => null);
+      }
+    } catch {
+      cleanupBridge();
     }
-  }
+  };
 
+  const drawContained = (source: HTMLCanvasElement | HTMLVideoElement, srcW: number, srcH: number) => {
+    ctx.fillStyle = '#05070c';
+    ctx.fillRect(0, 0, W, H);
+    if (srcW <= 0 || srcH <= 0) return;
+    const scale = Math.min(W / srcW, H / srcH);
+    const dw = Math.round(srcW * scale);
+    const dh = Math.round(srcH * scale);
+    const dx = Math.round((W - dw) / 2);
+    const dy = Math.round((H - dh) / 2);
+    ctx.drawImage(source, dx, dy, dw, dh);
+  };
+
+  const drawAtlasWebsiteScene = () => {
+    const state = latestBroadcastContext;
+    const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
+    const mins = Math.floor(elapsedSec / 60);
+    const secs = elapsedSec % 60;
+    const clock = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+
+    // Dark Atlas background gradient
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#070a10');
+    bg.addColorStop(0.55, '#0d1524');
+    bg.addColorStop(1, '#070a10');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // Subtle grid lines matching Atlas theme
+    ctx.strokeStyle = 'rgba(0, 162, 255, 0.08)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 64) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+    for (let y = 0; y < H; y += 64) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+
+    // Header strip
+    ctx.fillStyle = 'rgba(13, 19, 32, 0.92)';
+    ctx.fillRect(0, 0, W, 74);
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 74, W, 1);
+
+    ctx.fillStyle = '#00A2FF';
+    ctx.font = 'bold 26px system-ui, sans-serif';
+    ctx.fillText('ATLAS', 44, 46);
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 16px system-ui, sans-serif';
+    ctx.fillText(`@${state.gamertag}`, 152, 45);
+
+    // Active tab bar
+    const navTabs = ['HOME', 'GAMES', 'MUSIC', 'STREAMS', 'FRIENDS'];
+    let tx = 360;
+    for (const tab of navTabs) {
+      const active = state.currentTab === tab;
+      ctx.fillStyle = active ? '#ffffff' : '#64748b';
+      ctx.font = 'bold 15px system-ui, sans-serif';
+      ctx.fillText(tab, tx, 45);
+      if (active) {
+        ctx.fillStyle = '#00A2FF';
+        ctx.fillRect(tx, 58, ctx.measureText(tab).width, 3);
+      }
+      tx += 105;
+    }
+
+    // Stream LIVE timer badge (top-right)
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath();
+    ctx.roundRect(W - 180, 22, 136, 32, 8);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(`LIVE  ${clock}`, W - 160, 43);
+
+    // Center stage card
+    ctx.fillStyle = 'rgba(16, 23, 38, 0.95)';
+    ctx.strokeStyle = 'rgba(0, 162, 255, 0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(64, 118, W - 128, 450, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    if (state.activeGameTitle) {
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 15px system-ui, sans-serif';
+      ctx.fillText(
+        `ACTIVE GAME SESSION${state.activeGameGenre ? ` · ${state.activeGameGenre.toUpperCase()}` : ''}`,
+        104,
+        180
+      );
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 42px system-ui, sans-serif';
+      ctx.fillText(state.activeGameTitle.slice(0, 38), 104, 240);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '18px system-ui, sans-serif';
+      ctx.fillText(
+        'Playing inside the Atlas Arcade browser stage (website-only stream).',
+        104,
+        290
+      );
+
+      // Clean live equalizer / activity bars (driven by frame timestamp)
+      const t = Date.now() / 220;
+      for (let i = 0; i < 24; i++) {
+        const barH = 22 + Math.round(Math.abs(Math.sin(t + i * 0.45)) * 78);
+        ctx.fillStyle = i % 3 === 0 ? '#00A2FF' : '#00B06F';
+        ctx.fillRect(104 + i * 24, 480 - barH, 14, barH);
+      }
+    } else {
+      ctx.fillStyle = '#00A2FF';
+      ctx.font = 'bold 15px system-ui, sans-serif';
+      ctx.fillText(`ATLAS WEBSITE · ${state.currentTab} VIEW`, 104, 180);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 38px system-ui, sans-serif';
+      ctx.fillText(
+        state.currentTab === 'MUSIC'
+          ? 'Browsing Ad-Free Multi-Site Music'
+          : state.currentTab === 'GAMES'
+            ? `Browsing Game Library (${state.gamesCount} Games)`
+            : `Live in Atlas ${state.currentTab}`,
+        104,
+        242
+      );
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '18px system-ui, sans-serif';
+      ctx.fillText(
+        'Launch any game or browse Atlas — viewers automatically see your live website activity.',
+        104,
+        290
+      );
+    }
+
+    // Bottom Now-Playing Music strip (if music track is active)
+    if (state.currentTrackTitle) {
+      ctx.fillStyle = 'rgba(11, 16, 27, 0.96)';
+      ctx.strokeStyle = 'rgba(51, 65, 85, 0.9)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(64, 594, W - 128, 84, 14);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = state.isMusicPlaying ? '#00B06F' : '#64748b';
+      ctx.font = 'bold 13px system-ui, sans-serif';
+      ctx.fillText(
+        `${state.isMusicPlaying ? 'NOW PLAYING' : 'PAUSED'}${state.currentTrackSource ? ` · FROM ${state.currentTrackSource.toUpperCase()}` : ''}`,
+        94,
+        626
+      );
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px system-ui, sans-serif';
+      const musicLine = `${state.currentTrackTitle}${state.currentTrackArtist ? ` — ${state.currentTrackArtist}` : ''}`;
+      ctx.fillText(musicLine.slice(0, 68), 94, 656);
+    }
+  };
+
+  let surfacePollCounter = 0;
+  let cachedSurface: HTMLCanvasElement | HTMLVideoElement | null = null;
+
+  const renderFrame = () => {
+    if (!running) return;
+    try {
+      if (surfacePollCounter % 15 === 0) {
+        cachedSurface = findSameOriginPlayableSurface();
+      }
+      surfacePollCounter += 1;
+
+      if (cachedSurface instanceof HTMLCanvasElement && document.contains(cachedSurface)) {
+        ensureCanvasBridge(cachedSurface);
+        if (bridgeVideo && bridgeVideo.readyState >= 2 && bridgeVideo.videoWidth > 0) {
+          drawContained(bridgeVideo, bridgeVideo.videoWidth, bridgeVideo.videoHeight);
+        } else {
+          try {
+            drawContained(cachedSurface, cachedSurface.width, cachedSurface.height);
+          } catch {
+            drawAtlasWebsiteScene();
+          }
+        }
+      } else if (cachedSurface instanceof HTMLVideoElement && cachedSurface.readyState >= 2) {
+        drawContained(cachedSurface, cachedSurface.videoWidth, cachedSurface.videoHeight);
+      } else {
+        cleanupBridge();
+        drawAtlasWebsiteScene();
+      }
+    } catch {
+      drawAtlasWebsiteScene();
+    }
+  };
+
+  // Paint initial frame immediately so stream is non-empty from frame 0
+  renderFrame();
+  const intervalId = window.setInterval(renderFrame, Math.round(1000 / 30));
+
+  const mediaStream = canvas.captureStream(30);
   activeLocalMediaStream = mediaStream;
 
-  // Auto-terminate broadcast if the user clicks the browser's "Stop Sharing" UI
-  const videoTrack = mediaStream.getVideoTracks()[0];
-  if (videoTrack) {
-    videoTrack.onended = () => {
-      if (currentBroadcastingStreamId) {
-        endLiveStream(currentBroadcastingStreamId).catch(() => null);
-      }
-    };
-  }
+  stopWebsiteCaptureLoop = () => {
+    running = false;
+    window.clearInterval(intervalId);
+    cleanupBridge();
+  };
 
   return mediaStream;
 }
@@ -262,6 +573,11 @@ export async function endLiveStream(streamId: string): Promise<void> {
     }
   });
   broadcasterUnsubs.length = 0;
+
+  if (stopWebsiteCaptureLoop) {
+    stopWebsiteCaptureLoop();
+    stopWebsiteCaptureLoop = null;
+  }
 
   if (activeLocalMediaStream) {
     activeLocalMediaStream.getTracks().forEach((track) => track.stop());

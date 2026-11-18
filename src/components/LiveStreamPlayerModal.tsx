@@ -347,7 +347,7 @@ export const LiveStreamPlayerModal: React.FC<LiveStreamPlayerModalProps> = ({
               </span>
               {isStreamer && (
                 <span className="px-2.5 py-1 bg-cyan-600/90 text-white text-xs font-bold rounded-lg backdrop-blur-sm">
-                  ★ Broadcasting Your Screen
+                  ★ Streaming Atlas Website
                 </span>
               )}
             </div>

@@ -76,6 +76,7 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
   const tabs: { key: NavTab; label: string; badge?: number }[] = [
     { key: 'HOME', label: 'HOME' },
     { key: 'GAMES', label: 'GAMES' },
+    { key: 'MUSIC', label: 'MUSIC' },
     { key: 'STREAMS', label: 'STREAMS', badge: activeStreamsCount },
     { key: 'FRIENDS', label: 'FRIENDS' },
   ];

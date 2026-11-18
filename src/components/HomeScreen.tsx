@@ -18,6 +18,7 @@ interface HomeScreenProps {
   onViewAllStreams?: () => void;
   onPromptSignIn?: () => void;
   onOpenSafetyModal?: () => void;
+  hasActiveMusic?: boolean;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -35,6 +36,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onViewAllStreams,
   onPromptSignIn,
   onOpenSafetyModal,
+  hasActiveMusic = false,
 }) => {
   const [guestNoticeOpen, setGuestNoticeOpen] = useState(false);
 
@@ -423,17 +425,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
         {/* ================= COLUMN 3: FEATURED / CUSTOM GAMES (3x2 Grid) ================= */}
         <div className="lg:col-span-6 flex flex-col space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300">
               FEATURED
             </h2>
-            <button
-              onClick={onOpenAddGame}
-              className="text-xs text-[#00A2FF] hover:text-white font-bold flex items-center gap-1 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Custom Game</span>
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onOpenAddGame}
+                className="text-xs text-[#00A2FF] hover:text-white font-bold flex items-center gap-1 cursor-pointer whitespace-nowrap"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Custom Game</span>
+              </button>
+            </div>
           </div>
 
           {/* 3x2 Grid */}
@@ -506,7 +510,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </div>
 
       {/* ================= BOTTOM RIGHT: SETTINGS & SAFETY ================= */}
-      <div className="fixed bottom-4 right-6 z-20 flex items-center gap-2">
+      <div className={`fixed ${hasActiveMusic ? 'bottom-24' : 'bottom-4'} right-6 z-20 flex items-center gap-2 transition-all`}>
         {onOpenSafetyModal && (
           <button
             onClick={() => {

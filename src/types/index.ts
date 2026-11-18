@@ -11,6 +11,7 @@ export interface CustomGame {
   favorite: boolean;
   launchMode?: 'auto' | 'proxy' | 'direct' | 'popout';
   isPreset?: boolean;
+  htmlContent?: string;
 }
 
 export interface Friend {
@@ -43,7 +44,42 @@ export interface NetworkUser {
   isRegisteredUser?: boolean;
 }
 
-export type NavTab = 'HOME' | 'GAMES' | 'STREAMS' | 'FRIENDS' | 'SETTINGS';
+export type NavTab = 'HOME' | 'GAMES' | 'MUSIC' | 'STREAMS' | 'FRIENDS' | 'SETTINGS';
+
+export type MusicSource =
+  | 'ytmusic'
+  | 'spotify'
+  | 'soundcloud'
+  | 'audius'
+  | 'apple'
+  | 'deezer'
+  | 'youtube'
+  | 'direct';
+
+export type RepeatMode = 'off' | 'all' | 'one';
+
+export interface MusicTrack {
+  id: string;
+  title: string;
+  artist: string;
+  album?: string;
+  artwork?: string;
+  durationSec: number;
+  source: MusicSource;
+  sourceName: string;
+  sourceUrl: string;
+  playbackType: 'youtube' | 'soundcloud' | 'audio' | 'resolve';
+  playbackId?: string;
+  streamUrl?: string;
+  previewUrl?: string;
+}
+
+export interface MusicPlaylist {
+  id: string;
+  name: string;
+  tracks: MusicTrack[];
+  createdAt: string;
+}
 
 export interface LiveStream {
   id: string;

@@ -42,8 +42,6 @@ export const StreamsScreen: React.FC<StreamsScreenProps> = ({
       sounds.playBack();
       if (onPromptSignIn) {
         onPromptSignIn();
-      } else {
-        alert('Guests must sign in to start a live game stream.');
       }
       return;
     }
@@ -67,7 +65,7 @@ export const StreamsScreen: React.FC<StreamsScreenProps> = ({
               </span>
             </h1>
             <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
-              Broadcast your game screen live with audio to your friends or the entire Atlas network — just like YouTube and Twitch!
+              Broadcast your Atlas website session live with audio to your friends or the entire Atlas network — external apps and screens are never shared.
             </p>
           </div>
         </div>

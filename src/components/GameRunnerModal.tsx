@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CustomGame } from '../types';
-import { Maximize2, Minimize2, ArrowLeft, RefreshCw, ExternalLink, EyeOff, ShieldCheck, Zap, AlertCircle, Radio } from 'lucide-react';
+import { Maximize2, Minimize2, ArrowLeft, RefreshCw, ExternalLink, EyeOff, ShieldCheck, Zap, AlertCircle, Radio, Loader2 } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 import { closeCurrentTab } from '../services/tabCloak';
 
@@ -19,11 +19,68 @@ export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
 }) => {
   const [key, setKey] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const hasRawHtml = Boolean(game.htmlContent && game.htmlContent.trim().length > 0);
+  const isLocal = hasRawHtml || game.url.startsWith('/') || game.url.startsWith('./');
+  
   const [useProxy, setUseProxy] = useState<boolean>(() => {
-    // If explicitly specified, respect it. Otherwise, default to proxy to bypass refused connections!
-    return game.launchMode !== 'direct';
+    if (isLocal) return false;
+    return game.launchMode === 'proxy';
   });
   const [showTroubleshooter, setShowTroubleshooter] = useState(false);
+
+  // Generate instant local blob URL for raw HTML games (e.g. Isaac Repentance+ or uploaded OG HTMLs)
+  const localBlobUrl = useMemo(() => {
+    if (!game.htmlContent) return null;
+    try {
+      const blob = new Blob([game.htmlContent], { type: 'text/html;charset=utf-8' });
+      return URL.createObjectURL(blob);
+    } catch {
+      return null;
+    }
+  }, [game.htmlContent]);
+
+  // Clean up blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (localBlobUrl) {
+        URL.revokeObjectURL(localBlobUrl);
+      }
+    };
+  }, [localBlobUrl]);
+
+  // DNS preconnect for target URL to drastically speed up SSL handshake and TTFB
+  useEffect(() => {
+    if (!game.url || game.url.startsWith('/') || game.url.startsWith('blob:')) return;
+    try {
+      const parsed = new URL(game.url);
+      const preconnectLink = document.createElement('link');
+      preconnectLink.rel = 'preconnect';
+      preconnectLink.href = parsed.origin;
+      preconnectLink.crossOrigin = 'anonymous';
+
+      const dnsLink = document.createElement('link');
+      dnsLink.rel = 'dns-prefetch';
+      dnsLink.href = parsed.origin;
+
+      document.head.appendChild(preconnectLink);
+      document.head.appendChild(dnsLink);
+
+      return () => {
+        try {
+          document.head.removeChild(preconnectLink);
+          document.head.removeChild(dnsLink);
+        } catch {}
+      };
+    } catch {}
+  }, [game.url]);
+
+  // Reset loading state on reload
+  useEffect(() => {
+    setIsLoading(true);
+    const timer = setTimeout(() => setIsLoading(false), 5000); // safety fallback
+    return () => clearTimeout(timer);
+  }, [key, useProxy]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -38,10 +95,11 @@ export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
   // Cloaked Tab launcher (creates an about:blank stealth window with the game)
   const openCloakedWindow = () => {
     sounds.playLaunch();
+    const resolvedUrl = localBlobUrl || (isLocal ? (window.location.origin + game.url) : (useProxy ? `/api/proxy?url=${encodeURIComponent(game.url)}` : game.url));
     try {
       const win = window.open('about:blank', '_blank');
       if (!win) {
-        window.open(game.url, '_blank');
+        window.open(resolvedUrl, '_blank');
         return;
       }
       win.document.title = game.title || 'Google Classroom';
@@ -52,20 +110,26 @@ export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
       iframe.style.position = 'fixed';
       iframe.style.top = '0';
       iframe.style.left = '0';
-      iframe.src = game.url;
+      if (game.htmlContent) {
+        iframe.srcdoc = game.htmlContent;
+      } else {
+        iframe.src = resolvedUrl;
+      }
       win.document.body.style.margin = '0';
       win.document.body.appendChild(iframe);
 
       // Close the original tab right after clicking launch in about:blank
       closeCurrentTab(true);
     } catch {
-      window.open(game.url, '_blank');
+      window.open(resolvedUrl, '_blank');
     }
   };
 
-  const currentIframeSrc = useProxy
-    ? `/api/proxy?url=${encodeURIComponent(game.url)}`
-    : game.url;
+  const currentIframeSrc = localBlobUrl
+    ? localBlobUrl
+    : (useProxy && !isLocal)
+      ? `/api/proxy?url=${encodeURIComponent(game.url)}`
+      : game.url;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#070a10] select-none">
@@ -93,44 +157,57 @@ export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
           </span>
         </div>
 
-        {/* Center / Mode Toggle */}
-        <div className="flex items-center gap-1.5 bg-[#171d2b] p-1 rounded-xl border border-slate-700/80">
-          <button
-            onClick={() => {
-              sounds.playSelect();
-              setUseProxy(true);
-              setKey((k) => k + 1);
-            }}
-            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-              useProxy
-                ? 'bg-[#00A2FF] text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-            title="Atlas Reverse Proxy strips X-Frame-Options to bypass connection refusal"
-          >
-            <Zap className="w-3 h-3 text-amber-300" />
-            <span className="hidden sm:inline">Unblocker</span> Proxy
-          </button>
+        {/* Center / Mode Toggle or Built-in Badge */}
+        {hasRawHtml ? (
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-950/70 rounded-xl border border-emerald-500/50 text-emerald-300 text-xs font-bold shadow-sm">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>⚡ Instant OG HTML (0ms Latency)</span>
+          </div>
+        ) : isLocal ? (
+          <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-950/60 rounded-xl border border-emerald-600/50 text-emerald-300 text-xs font-bold shadow-sm">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Local Arcade Game</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 bg-[#171d2b] p-1 rounded-xl border border-slate-700/80">
+            <button
+              onClick={() => {
+                sounds.playSelect();
+                setUseProxy(true);
+                setKey((k) => k + 1);
+              }}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                useProxy
+                  ? 'bg-[#00A2FF] text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Atlas Reverse Proxy strips X-Frame-Options to bypass connection refusal"
+            >
+              <Zap className="w-3 h-3 text-amber-300" />
+              <span className="hidden sm:inline">Unblocker</span> Proxy
+            </button>
 
-          <button
-            onClick={() => {
-              sounds.playSelect();
-              setUseProxy(false);
-              setKey((k) => k + 1);
-            }}
-            className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-              !useProxy
-                ? 'bg-slate-700 text-white shadow-sm'
-                : 'text-slate-400 hover:text-white'
-            }`}
-            title="Direct site iframe embed"
-          >
-            Direct
-          </button>
-        </div>
+            <button
+              onClick={() => {
+                sounds.playSelect();
+                setUseProxy(false);
+                setKey((k) => k + 1);
+              }}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                !useProxy
+                  ? 'bg-slate-700 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+              title="Direct site iframe embed"
+            >
+              Direct
+            </button>
+          </div>
+        )}
 
         {/* Actions Cluster */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+
           {/* Reload Frame */}
           <button
             onClick={() => {
@@ -221,13 +298,51 @@ export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
 
       {/* Sandboxed Game Container */}
       <div className="relative flex-1 w-full h-full bg-black overflow-hidden flex flex-col">
+        {/* Fast Loading Splash / Progress Feedback */}
+        {isLoading && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#090d16] text-white p-6 select-none transition-opacity duration-300">
+            <div className="relative mb-4">
+              <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center animate-pulse">
+                <Loader2 className="w-7 h-7 text-cyan-400 animate-spin" />
+              </div>
+            </div>
+            <h3 className="text-base font-black uppercase tracking-wider text-white mb-1">
+              Loading {game.title}...
+            </h3>
+            <p className="text-xs text-slate-400 max-w-xs text-center mb-4">
+              {hasRawHtml
+                ? 'Mounting local HTML environment with zero latency.'
+                : useProxy
+                  ? 'Establishing high-speed proxy tunnel & caching static assets.'
+                  : 'Establishing direct embed connection.'}
+            </p>
+
+            {useProxy && !isLocal && (
+              <button
+                onClick={() => {
+                  sounds.playSelect();
+                  setUseProxy(false);
+                  setKey((k) => k + 1);
+                }}
+                className="text-xs px-3 py-1.5 bg-[#172033] hover:bg-[#202d48] border border-cyan-800 text-cyan-300 rounded-lg font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <span>Switch to Direct Mode</span>
+              </button>
+            )}
+          </div>
+        )}
+
         <iframe
           key={`${key}-${useProxy ? 'proxy' : 'direct'}`}
           src={currentIframeSrc}
           title={game.title}
           className="w-full h-full border-0 flex-1"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+          // @ts-ignore: loading attribute on iframe is supported in modern browsers
+          loading="eager"
+          onLoad={() => setIsLoading(false)}
+          sandbox={isLocal ? undefined : "allow-scripts allow-same-origin allow-forms allow-popups allow-pointer-lock"}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen; gamepad; focus-without-user-activation; cross-origin-isolated"
           allowFullScreen
         />
 
@@ -243,7 +358,9 @@ export const GameRunnerModal: React.FC<GameRunnerModalProps> = ({
 
           <div className="flex items-center gap-1.5 bg-black/80 px-2.5 py-1 rounded text-[11px] text-slate-400 border border-slate-800 pointer-events-none">
             <ShieldCheck className="w-3 h-3 text-emerald-400" />
-            <span>{useProxy ? 'Atlas Proxy Active' : 'Direct Embed'}</span>
+            <span>
+              {hasRawHtml ? '⚡ Local OG HTML' : useProxy ? 'Atlas Proxy Active' : 'Direct Embed'}
+            </span>
           </div>
         </div>
       </div>
