@@ -510,9 +510,35 @@ export async function resolveMusicUrl(
   return resolveMusicUrlClientFallback(url);
 }
 
+const CLIENT_PLACEHOLDER_ARTISTS = new Set([
+  'spotify',
+  'spotify artist',
+  'youtube',
+  'youtube music',
+  'soundcloud',
+  'soundcloud artist',
+  'apple music',
+  'apple music artist',
+  'deezer',
+  'deezer artist',
+  'audius',
+  'audius artist',
+]);
+
+function normClientMusicStr(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
 export async function resolveFullStream(
   title: string,
   artist: string,
+  expectedDurationSec = 0,
+  excludeYtIds: string[] = [],
   skipYoutube = false
 ): Promise<{
   playbackType: 'audio' | 'youtube' | 'preview';
@@ -523,6 +549,8 @@ export async function resolveFullStream(
   const params = new URLSearchParams({
     title,
     artist,
+    ...(expectedDurationSec > 0 ? { duration: String(Math.round(expectedDurationSec)) } : {}),
+    ...(excludeYtIds.length > 0 ? { excludeIds: excludeYtIds.join(',') } : {}),
     ...(skipYoutube ? { skipYoutube: '1' } : {}),
   });
   const api = await safeFetchApiJson<{
@@ -536,13 +564,38 @@ export async function resolveFullStream(
     return api.data;
   }
 
-  // Client fallback: match on Audius directly in browser
-  const audiusMatches = await clientFetchAudius(`${title} ${artist}`.trim(), 3);
-  if (audiusMatches.length > 0 && audiusMatches[0].streamUrl) {
+  // Client fallback: match on Audius strictly (never return an unrelated track)
+  const cleanArtist = CLIENT_PLACEHOLDER_ARTISTS.has(artist.trim().toLowerCase()) ? '' : artist.trim();
+  const audiusMatches = await clientFetchAudius(`${title} ${cleanArtist}`.trim(), 6);
+  const reqTitleNorm = normClientMusicStr(title);
+  const reqTitleTokens = reqTitleNorm.split(' ').filter((w) => w.length >= 2);
+  const reqArtistTokens = normClientMusicStr(cleanArtist)
+    .split(' ')
+    .filter((w) => w.length >= 2);
+
+  const verifiedAudius = audiusMatches.find((cand) => {
+    if (!cand.streamUrl) return false;
+    const candTitle = normClientMusicStr(cand.title);
+    const candCombined = `${candTitle} ${normClientMusicStr(cand.artist)}`;
+    const titleOk =
+      candTitle === reqTitleNorm ||
+      (reqTitleTokens.length > 0 &&
+        reqTitleTokens.filter((tok) => candTitle.includes(tok)).length / reqTitleTokens.length >= 0.75);
+    if (!titleOk) return false;
+    if (reqArtistTokens.length > 0 && !reqArtistTokens.some((tok) => candCombined.includes(tok))) {
+      return false;
+    }
+    if (expectedDurationSec > 0 && cand.durationSec > 0) {
+      if (Math.abs(cand.durationSec - expectedDurationSec) > 25) return false;
+    }
+    return true;
+  });
+
+  if (verifiedAudius && verifiedAudius.streamUrl) {
     return {
       playbackType: 'audio',
-      streamUrl: audiusMatches[0].streamUrl,
-      durationSec: audiusMatches[0].durationSec,
+      streamUrl: verifiedAudius.streamUrl,
+      durationSec: verifiedAudius.durationSec,
     };
   }
   return { playbackType: 'preview' };

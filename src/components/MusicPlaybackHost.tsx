@@ -132,6 +132,10 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
     onError,
   };
 
+  const backendRef = useRef<ActiveBackend>(backend);
+  backendRef.current = backend;
+  const failedYtIdsRef = useRef<Set<string>>(new Set());
+
   const trackRef = useRef(track);
   trackRef.current = track;
   const isPlayingRef = useRef(isPlaying);
@@ -139,7 +143,15 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
   const volumeRef = useRef(isMuted ? 0 : volume);
   volumeRef.current = isMuted ? 0 : volume;
 
+  const commitBackend = (next: ActiveBackend) => {
+    backendRef.current = next;
+    setBackend(next);
+  };
+
   const stopAllOtherEngines = (keep: ActiveBackend['mode']) => {
+    if (keep === 'none') {
+      backendRef.current = { mode: 'none' };
+    }
     if (keep !== 'audio' && audioRef.current) {
       try {
         audioRef.current.pause();
@@ -162,51 +174,55 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
   // Resolve target playback backend whenever track or playNonce changes
   useEffect(() => {
     const token = ++activeTokenRef.current;
+    failedYtIdsRef.current = new Set();
     callbacksRef.current.onError(null);
     callbacksRef.current.onProgress(0, track?.durationSec || 0);
 
     if (!track) {
       stopAllOtherEngines('none');
       callbacksRef.current.onBufferingChange(false);
-      setBackend({ mode: 'none' });
+      commitBackend({ mode: 'none' });
       return;
     }
 
     if (track.playbackType === 'audio' && track.streamUrl) {
       stopAllOtherEngines('audio');
       callbacksRef.current.onBufferingChange(true);
-      setBackend({ mode: 'audio', url: track.streamUrl });
+      commitBackend({ mode: 'audio', url: track.streamUrl });
       return;
     }
 
     if (track.playbackType === 'youtube' && track.playbackId) {
       stopAllOtherEngines('youtube');
       callbacksRef.current.onBufferingChange(true);
-      setBackend({ mode: 'youtube', videoId: track.playbackId });
+      commitBackend({ mode: 'youtube', videoId: track.playbackId });
       return;
     }
 
     if (track.playbackType === 'soundcloud' && (track.playbackId || track.sourceUrl)) {
       stopAllOtherEngines('soundcloud');
       callbacksRef.current.onBufferingChange(true);
-      setBackend({ mode: 'soundcloud', trackUrl: track.playbackId || track.sourceUrl });
+      commitBackend({ mode: 'soundcloud', trackUrl: track.playbackId || track.sourceUrl });
       return;
     }
 
-    // For Spotify, Apple Music, Deezer: resolve full ad-free audio stream first, then preview fallback
+    // For Spotify, Apple Music, Deezer, or snipped SoundCloud: resolve verified full-length matching audio
     stopAllOtherEngines('none');
     callbacksRef.current.onBufferingChange(true);
-    setBackend({ mode: 'none' });
+    commitBackend({ mode: 'none' });
 
-    resolveFullStream(track.title, track.artist)
+    resolveFullStream(track.title, track.artist, track.durationSec || 0)
       .then((resolved) => {
         if (activeTokenRef.current !== token) return;
         if (resolved.playbackType === 'audio' && resolved.streamUrl) {
-          setBackend({ mode: 'audio', url: resolved.streamUrl });
+          commitBackend({ mode: 'audio', url: resolved.streamUrl });
         } else if (resolved.playbackType === 'youtube' && resolved.playbackId) {
-          setBackend({ mode: 'youtube', videoId: resolved.playbackId });
+          commitBackend({ mode: 'youtube', videoId: resolved.playbackId });
         } else if (track.previewUrl) {
-          setBackend({ mode: 'audio', url: track.previewUrl });
+          commitBackend({ mode: 'audio', url: track.previewUrl });
+          callbacksRef.current.onError(
+            `Full track embed unavailable — playing 30s official preview. Click "${track.sourceName}" for the full song.`
+          );
         } else {
           callbacksRef.current.onBufferingChange(false);
           callbacksRef.current.onPlayStateChange(false);
@@ -218,7 +234,10 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
       .catch(() => {
         if (activeTokenRef.current !== token) return;
         if (track.previewUrl) {
-          setBackend({ mode: 'audio', url: track.previewUrl });
+          commitBackend({ mode: 'audio', url: track.previewUrl });
+          callbacksRef.current.onError(
+            `Full track embed unavailable — playing 30s official preview. Click "${track.sourceName}" for the full song.`
+          );
         } else {
           callbacksRef.current.onBufferingChange(false);
           callbacksRef.current.onPlayStateChange(false);
@@ -257,11 +276,11 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
     if (backend.mode !== 'youtube') return;
     let cancelled = false;
     const videoId = backend.videoId;
-    const token = activeTokenRef.current;
+    const effectToken = activeTokenRef.current;
 
     loadYouTubeIframeApi()
       .then((YT) => {
-        if (cancelled || activeTokenRef.current !== token) return;
+        if (cancelled || activeTokenRef.current !== effectToken) return;
         if (ytPlayerRef.current && ytReadyRef.current) {
           try {
             ytPlayerRef.current.setVolume(volumeRef.current);
@@ -296,6 +315,7 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
           events: {
             onReady: (ev: any) => {
               ytReadyRef.current = true;
+              if (backendRef.current.mode !== 'youtube') return;
               try {
                 ev.target.setVolume(volumeRef.current);
                 if (isPlayingRef.current) ev.target.playVideo();
@@ -303,7 +323,7 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
               callbacksRef.current.onBufferingChange(false);
             },
             onStateChange: (ev: any) => {
-              if (activeTokenRef.current !== token) return;
+              if (backendRef.current.mode !== 'youtube') return;
               const s = ev.data;
               if (s === 1) {
                 // Playing
@@ -322,17 +342,34 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
               }
             },
             onError: () => {
-              if (activeTokenRef.current !== token) return;
+              const curBackend = backendRef.current;
               const t = trackRef.current;
-              if (!t) return;
-              // Auto-fallback to Audius or preview audio if YouTube uploader blocked embed
-              resolveFullStream(t.title, t.artist, true)
+              if (curBackend.mode !== 'youtube' || !t) return;
+
+              failedYtIdsRef.current.add(curBackend.videoId);
+              const excluded = Array.from(failedYtIdsRef.current);
+              const skipYt = excluded.length >= 3;
+              const callToken = activeTokenRef.current;
+
+              // Try next verified embeddable match for this exact song before preview fallback
+              resolveFullStream(t.title, t.artist, t.durationSec || 0, excluded, skipYt)
                 .then((fallback) => {
-                  if (activeTokenRef.current !== token) return;
-                  if (fallback.playbackType === 'audio' && fallback.streamUrl) {
-                    setBackend({ mode: 'audio', url: fallback.streamUrl });
+                  if (activeTokenRef.current !== callToken) return;
+                  if (
+                    fallback.playbackType === 'youtube' &&
+                    fallback.playbackId &&
+                    !failedYtIdsRef.current.has(fallback.playbackId)
+                  ) {
+                    commitBackend({ mode: 'youtube', videoId: fallback.playbackId });
+                  } else if (fallback.playbackType === 'audio' && fallback.streamUrl) {
+                    stopAllOtherEngines('audio');
+                    commitBackend({ mode: 'audio', url: fallback.streamUrl });
                   } else if (t.previewUrl) {
-                    setBackend({ mode: 'audio', url: t.previewUrl });
+                    stopAllOtherEngines('audio');
+                    commitBackend({ mode: 'audio', url: t.previewUrl });
+                    callbacksRef.current.onError(
+                      `Full embed restricted — playing 30s official preview. Click "${t.sourceName}" for the full song.`
+                    );
                   } else {
                     callbacksRef.current.onBufferingChange(false);
                     callbacksRef.current.onPlayStateChange(false);
@@ -342,11 +379,20 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
                   }
                 })
                 .catch(() => {
-                  callbacksRef.current.onBufferingChange(false);
-                  callbacksRef.current.onPlayStateChange(false);
-                  callbacksRef.current.onError(
-                    `Playback restricted — click "${t.sourceName}" to listen on site.`
-                  );
+                  if (activeTokenRef.current !== callToken) return;
+                  if (t.previewUrl) {
+                    stopAllOtherEngines('audio');
+                    commitBackend({ mode: 'audio', url: t.previewUrl });
+                    callbacksRef.current.onError(
+                      `Full embed restricted — playing 30s official preview. Click "${t.sourceName}" for the full song.`
+                    );
+                  } else {
+                    callbacksRef.current.onBufferingChange(false);
+                    callbacksRef.current.onPlayStateChange(false);
+                    callbacksRef.current.onError(
+                      `Playback restricted — click "${t.sourceName}" to listen on site.`
+                    );
+                  }
                 });
             },
           },
@@ -377,10 +423,11 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
     if (backend.mode !== 'youtube') return;
     const timer = setInterval(() => {
       const p = ytPlayerRef.current;
-      if (!p || !ytReadyRef.current) return;
+      if (!p || !ytReadyRef.current || backendRef.current.mode !== 'youtube') return;
       try {
         const cur = Number(p.getCurrentTime?.() || 0);
-        const dur = Number(p.getDuration?.() || trackRef.current?.durationSec || 0);
+        const reportedDur = Number(p.getDuration?.() || 0);
+        const dur = reportedDur > 0 ? reportedDur : trackRef.current?.durationSec || 0;
         if (dur > 0 || cur > 0) {
           callbacksRef.current.onProgress(cur, dur);
         }
@@ -400,64 +447,93 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
     const widgetUrl = `https://w.soundcloud.com/player/?url=${encodeURIComponent(
       backend.trackUrl
     )}&auto_play=true&buying=false&liking=false&download=false&sharing=false&show_artwork=false&show_comments=false&show_playcount=false&show_user=false`;
+
+    let activeWidget: any = null;
+    let activeSC: any = null;
+
+    const handleIframeLoad = () => {
+      if (cancelled || activeTokenRef.current !== token || backendRef.current.mode !== 'soundcloud') return;
+      loadSoundCloudWidgetApi()
+        .then((SC) => {
+          if (cancelled || activeTokenRef.current !== token || !scIframeRef.current) return;
+          activeSC = SC;
+          const widget = SC.Widget(scIframeRef.current);
+          activeWidget = widget;
+          scWidgetRef.current = widget;
+          let scDurationSec = trackRef.current?.durationSec || 0;
+
+          widget.bind(SC.Widget.Events.READY, () => {
+            if (cancelled || activeTokenRef.current !== token) return;
+            callbacksRef.current.onBufferingChange(false);
+            try {
+              widget.setVolume(volumeRef.current);
+              widget.getDuration((ms: number) => {
+                if (ms > 0) scDurationSec = ms / 1000;
+              });
+              if (isPlayingRef.current) widget.play();
+            } catch {}
+          });
+
+          widget.bind(SC.Widget.Events.PLAY, () => {
+            if (cancelled || activeTokenRef.current !== token) return;
+            callbacksRef.current.onBufferingChange(false);
+            callbacksRef.current.onPlayStateChange(true);
+            try {
+              widget.getDuration((ms: number) => {
+                if (ms > 0) scDurationSec = ms / 1000;
+              });
+            } catch {}
+          });
+
+          widget.bind(SC.Widget.Events.PAUSE, () => {
+            if (cancelled || activeTokenRef.current !== token) return;
+            callbacksRef.current.onPlayStateChange(false);
+          });
+
+          widget.bind(SC.Widget.Events.PLAY_PROGRESS, (ev: any) => {
+            if (cancelled || activeTokenRef.current !== token) return;
+            const posSec = (Number(ev?.currentPosition) || 0) / 1000;
+            callbacksRef.current.onProgress(posSec, scDurationSec || trackRef.current?.durationSec || 0);
+          });
+
+          widget.bind(SC.Widget.Events.FINISH, () => {
+            if (cancelled || activeTokenRef.current !== token) return;
+            callbacksRef.current.onTrackEnded();
+          });
+
+          widget.bind(SC.Widget.Events.ERROR, () => {
+            if (cancelled || activeTokenRef.current !== token) return;
+            callbacksRef.current.onBufferingChange(false);
+            callbacksRef.current.onError('SoundCloud stream unavailable — click SoundCloud link to open.');
+          });
+        })
+        .catch(() => {
+          if (!cancelled) {
+            callbacksRef.current.onBufferingChange(false);
+            callbacksRef.current.onError('SoundCloud player unavailable right now.');
+          }
+        });
+    };
+
+    iframe.addEventListener('load', handleIframeLoad, { once: true });
     iframe.src = widgetUrl;
-
-    loadSoundCloudWidgetApi()
-      .then((SC) => {
-        if (cancelled || activeTokenRef.current !== token || !scIframeRef.current) return;
-        const widget = SC.Widget(scIframeRef.current);
-        scWidgetRef.current = widget;
-        let scDurationSec = trackRef.current?.durationSec || 0;
-
-        widget.bind(SC.Widget.Events.READY, () => {
-          if (activeTokenRef.current !== token) return;
-          callbacksRef.current.onBufferingChange(false);
-          try {
-            widget.setVolume(volumeRef.current);
-            widget.getDuration((ms: number) => {
-              if (ms > 0) scDurationSec = ms / 1000;
-            });
-            if (isPlayingRef.current) widget.play();
-          } catch {}
-        });
-
-        widget.bind(SC.Widget.Events.PLAY, () => {
-          if (activeTokenRef.current !== token) return;
-          callbacksRef.current.onBufferingChange(false);
-          callbacksRef.current.onPlayStateChange(true);
-        });
-
-        widget.bind(SC.Widget.Events.PAUSE, () => {
-          if (activeTokenRef.current !== token) return;
-          callbacksRef.current.onPlayStateChange(false);
-        });
-
-        widget.bind(SC.Widget.Events.PLAY_PROGRESS, (ev: any) => {
-          if (activeTokenRef.current !== token) return;
-          const posSec = (Number(ev?.currentPosition) || 0) / 1000;
-          callbacksRef.current.onProgress(posSec, scDurationSec || trackRef.current?.durationSec || 0);
-        });
-
-        widget.bind(SC.Widget.Events.FINISH, () => {
-          if (activeTokenRef.current !== token) return;
-          callbacksRef.current.onTrackEnded();
-        });
-
-        widget.bind(SC.Widget.Events.ERROR, () => {
-          if (activeTokenRef.current !== token) return;
-          callbacksRef.current.onBufferingChange(false);
-          callbacksRef.current.onError('SoundCloud stream unavailable — click SoundCloud link to open.');
-        });
-      })
-      .catch(() => {
-        if (!cancelled) {
-          callbacksRef.current.onBufferingChange(false);
-          callbacksRef.current.onError('SoundCloud player unavailable right now.');
-        }
-      });
 
     return () => {
       cancelled = true;
+      iframe.removeEventListener('load', handleIframeLoad);
+      if (activeWidget && activeSC?.Widget?.Events) {
+        try {
+          activeWidget.unbind(activeSC.Widget.Events.READY);
+          activeWidget.unbind(activeSC.Widget.Events.PLAY);
+          activeWidget.unbind(activeSC.Widget.Events.PAUSE);
+          activeWidget.unbind(activeSC.Widget.Events.PLAY_PROGRESS);
+          activeWidget.unbind(activeSC.Widget.Events.FINISH);
+          activeWidget.unbind(activeSC.Widget.Events.ERROR);
+        } catch {}
+      }
+      if (scWidgetRef.current === activeWidget) {
+        scWidgetRef.current = null;
+      }
     };
   }, [backend]);
 
@@ -514,14 +590,23 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
       <audio
         ref={audioRef}
         preload="auto"
-        onCanPlay={() => callbacksRef.current.onBufferingChange(false)}
+        onCanPlay={() => {
+          if (backendRef.current.mode === 'audio') callbacksRef.current.onBufferingChange(false);
+        }}
         onPlaying={() => {
+          if (backendRef.current.mode !== 'audio') return;
           callbacksRef.current.onBufferingChange(false);
           callbacksRef.current.onPlayStateChange(true);
         }}
-        onPause={() => callbacksRef.current.onPlayStateChange(false)}
-        onWaiting={() => callbacksRef.current.onBufferingChange(true)}
+        onPause={() => {
+          if (backendRef.current.mode !== 'audio') return;
+          callbacksRef.current.onPlayStateChange(false);
+        }}
+        onWaiting={() => {
+          if (backendRef.current.mode === 'audio') callbacksRef.current.onBufferingChange(true);
+        }}
         onTimeUpdate={(e) => {
+          if (backendRef.current.mode !== 'audio') return;
           const el = e.currentTarget;
           callbacksRef.current.onProgress(
             el.currentTime || 0,
@@ -530,9 +615,11 @@ export const MusicPlaybackHost: React.FC<MusicPlaybackHostProps> = ({
               : trackRef.current?.durationSec || 0
           );
         }}
-        onEnded={() => callbacksRef.current.onTrackEnded()}
+        onEnded={() => {
+          if (backendRef.current.mode === 'audio') callbacksRef.current.onTrackEnded();
+        }}
         onError={() => {
-          if (backend.mode !== 'audio') return;
+          if (backendRef.current.mode !== 'audio') return;
           const t = trackRef.current;
           callbacksRef.current.onBufferingChange(false);
           callbacksRef.current.onPlayStateChange(false);
