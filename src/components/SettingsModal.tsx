@@ -1,13 +1,14 @@
 import React, { useState, useRef } from 'react';
-import { UserProfile, TabCloakConfig, TabCloakPreset } from '../types';
-import { X, Volume2, VolumeX, RotateCcw, User, ShieldCheck, Upload, Settings, Trash2, Shield, ExternalLink, Check } from 'lucide-react';
+import { UserProfile, TabCloakConfig } from '../types';
+import { X, Volume2, VolumeX, RotateCcw, User, ShieldCheck, Upload, Settings, Trash2, Shield, ExternalLink, Check, Loader2, RotateCw } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
-import { CLOAK_PRESETS, applyTabCloak, saveTabCloak } from '../services/tabCloak';
+import { applyTabCloak, saveTabCloak } from '../services/tabCloak';
 import { compressImageToDataUrl } from '../utils/imageCompressor';
+import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
 
 interface SettingsModalProps {
   userProfile: UserProfile;
-  onUpdateProfile: (profile: UserProfile) => void;
+  onUpdateProfile: (profile: UserProfile) => Promise<void> | void;
   isMuted: boolean;
   onToggleMute: () => void;
   cloakConfig: TabCloakConfig;
@@ -37,12 +38,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [gamertag, setGamertag] = useState(userProfile.gamertag);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [isUploadingPic, setIsUploadingPic] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handleSaveGamertag = (e: React.FormEvent) => {
+  const handleSaveGamertag = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gamertag.trim()) return;
-    onUpdateProfile({ ...userProfile, gamertag: gamertag.trim() });
+    if (!userProfile.isGuest || !gamertag.trim()) return;
+    await onUpdateProfile({ ...userProfile, gamertag: gamertag.trim() });
     sounds.playSelect();
   };
 
@@ -50,19 +53,48 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset input so re-selecting the exact same file triggers onChange again
+    e.target.value = '';
     setUploadError(null);
-    if (file) {
-      if (file.size > 20 * 1024 * 1024) {
-        setUploadError('Please select an image smaller than 20MB.');
-        return;
-      }
-      try {
-        const compressed = await compressImageToDataUrl(file, 96, 96, 0.75);
-        onUpdateProfile({ ...userProfile, gamerpic: compressed });
-        sounds.playSelect();
-      } catch (err) {
-        console.warn('Avatar compression error:', err);
-      }
+    setUploadSuccess(null);
+    if (!file) return;
+
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('Please select an image smaller than 20MB.');
+      return;
+    }
+
+    setIsUploadingPic(true);
+    try {
+      const compressed = await compressImageToDataUrl(file, 128, 128, 0.8);
+      await onUpdateProfile({ ...userProfile, gamerpic: compressed });
+      setUploadSuccess(
+        userProfile.isGuest
+          ? 'Profile picture updated for this session!'
+          : 'Custom profile picture saved & synced to Atlas!'
+      );
+      sounds.playSelect();
+    } catch (err: any) {
+      console.warn('Avatar upload error:', err);
+      setUploadError(err?.message || 'Could not upload custom profile picture. Try PNG, JPG, or WebP.');
+      sounds.playBack();
+    } finally {
+      setIsUploadingPic(false);
+    }
+  };
+
+  const handleResetAvatar = async () => {
+    setUploadError(null);
+    setUploadSuccess(null);
+    setIsUploadingPic(true);
+    try {
+      await onUpdateProfile({ ...userProfile, gamerpic: MISSING_TEXTURE_DATA_URL });
+      setUploadSuccess('Reset to default avatar.');
+      sounds.playSelect();
+    } catch (err: any) {
+      setUploadError(err?.message || 'Could not reset profile picture.');
+    } finally {
+      setIsUploadingPic(false);
     }
   };
 
@@ -99,8 +131,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-800 border-2 border-slate-600 shrink-0">
                   <img
-                    src={userProfile.gamerpic}
-                    alt=""
+                    src={userProfile.gamerpic || MISSING_TEXTURE_DATA_URL}
+                    alt={userProfile.gamertag}
+                    onError={(e) => {
+                      e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                    }}
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -112,20 +147,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onChange={handleImageUpload}
                     className="hidden"
                   />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-1.5 py-1.5 px-3 bg-[#252d40] hover:bg-[#313c54] text-slate-200 text-xs font-bold rounded-lg border border-slate-600 transition-colors"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Upload New Custom Image</span>
-                  </button>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      disabled={isUploadingPic}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-1.5 py-1.5 px-3 bg-[#252d40] hover:bg-[#313c54] disabled:opacity-60 text-slate-200 text-xs font-bold rounded-lg border border-slate-600 transition-colors cursor-pointer"
+                    >
+                      {isUploadingPic ? (
+                        <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                      )}
+                      <span>{isUploadingPic ? 'Saving Image...' : 'Upload New Custom Image'}</span>
+                    </button>
+                    {userProfile.gamerpic !== MISSING_TEXTURE_DATA_URL && (
+                      <button
+                        type="button"
+                        disabled={isUploadingPic}
+                        onClick={handleResetAvatar}
+                        className="flex items-center gap-1 py-1.5 px-2.5 bg-[#192030] hover:bg-[#232d42] text-slate-400 hover:text-white text-xs font-semibold rounded-lg border border-slate-700 transition-colors cursor-pointer"
+                        title="Reset to default avatar"
+                      >
+                        <RotateCw className="w-3 h-3" />
+                        <span>Reset</span>
+                      </button>
+                    )}
+                  </div>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Upload any image from your computer to update your gamerpic.
+                    Upload any PNG, JPG, GIF, or WebP from your computer to update your profile picture.
                   </p>
                   {uploadError && (
                     <p className="text-[11px] text-red-400 font-semibold mt-1">
                       {uploadError}
+                    </p>
+                  )}
+                  {uploadSuccess && (
+                    <p className="text-[11px] text-emerald-400 font-semibold mt-1 flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5 shrink-0" />
+                      <span>{uploadSuccess}</span>
                     </p>
                   )}
                 </div>
@@ -134,26 +194,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             {/* Gamertag Form */}
             <form onSubmit={handleSaveGamertag} className="pt-2 border-t border-slate-700/60">
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">
-                Atlas Gamertag
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                  Atlas Gamertag
+                </label>
+                {!userProfile.isGuest && (
+                  <span className="text-[10px] text-slate-400">
+                    Registered ID (locked)
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3" />
+                  <User className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
                     type="text"
-                    value={gamertag}
+                    value={userProfile.isGuest ? gamertag : userProfile.gamertag}
                     onChange={(e) => setGamertag(e.target.value)}
+                    disabled={!userProfile.isGuest}
                     maxLength={18}
-                    className="w-full bg-[#141a28] text-white text-sm font-bold pl-9 pr-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-[#00A2FF]"
+                    className="w-full bg-[#141a28] disabled:opacity-70 text-white text-sm font-bold pl-9 pr-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-[#00A2FF]"
                   />
                 </div>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-[#00A2FF] hover:bg-blue-600 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
-                >
-                  Save
-                </button>
+                {userProfile.isGuest && (
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-[#00A2FF] hover:bg-blue-600 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                  >
+                    Save
+                  </button>
+                )}
               </div>
             </form>
           </div>

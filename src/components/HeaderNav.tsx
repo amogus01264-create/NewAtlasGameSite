@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 import { CLOAK_PRESETS } from '../services/tabCloak';
+import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
 
 interface HeaderNavProps {
   currentTab: NavTab;
@@ -230,8 +231,11 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
             >
               <div className="w-5 h-5 rounded-full overflow-hidden bg-black border border-cyan-400/50 flex items-center justify-center shrink-0">
                 <img
-                  src={userProfile.gamerpic}
-                  alt=""
+                  src={userProfile.gamerpic || MISSING_TEXTURE_DATA_URL}
+                  alt={userProfile.gamertag}
+                  onError={(e) => {
+                    e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                  }}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -251,7 +255,14 @@ export const HeaderNav: React.FC<HeaderNavProps> = ({
                 {/* Profile Snapshot */}
                 <div className="flex items-center gap-2.5 pb-2.5 border-b border-slate-800">
                   <div className="w-9 h-9 rounded-full overflow-hidden bg-black border border-cyan-400/60 shrink-0">
-                    <img src={userProfile.gamerpic} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={userProfile.gamerpic || MISSING_TEXTURE_DATA_URL}
+                      alt={userProfile.gamertag}
+                      onError={(e) => {
+                        e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                      }}
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                   <div className="min-w-0">
                     <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">

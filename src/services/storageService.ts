@@ -236,8 +236,8 @@ export const safeLocalStorage = {
         const k = window.localStorage.key(i);
         if (k && !k.includes('session') && !k.includes('cloak') && !k.includes('sound')) {
           const val = window.localStorage.getItem(k);
-          // If value is over 10KB, mark for removal from localStorage (IndexedDB has it)
-          if (val && val.length > 10000) {
+          // Only prune genuinely huge entries (>150KB) so compact saved account avatars stay intact
+          if (val && val.length > 150000) {
             keysToPrune.push(k);
           }
         }

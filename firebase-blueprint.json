@@ -10,6 +10,9 @@
         "gamerpic": { "type": "string", "description": "Avatar data URL or image link" },
         "createdAt": { "type": "string", "description": "Timestamp of account creation" },
         "gender": { "type": "string", "description": "User gender if provided" },
+        "presenceStatus": { "type": "string", "enum": ["online", "playing", "offline"], "description": "Real-time presence state" },
+        "lastSeenAt": { "type": "number", "description": "Epoch milliseconds of latest presence heartbeat" },
+        "currentGame": { "type": "string", "description": "Title of the game currently being played, if any" },
         "birthday": {
           "type": "object",
           "description": "User birthday details",

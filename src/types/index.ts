@@ -122,6 +122,9 @@ export interface RegisteredAccount {
   };
   gender?: 'female' | 'male' | null;
   createdAt: string;
+  presenceStatus?: 'online' | 'playing' | 'offline';
+  lastSeenAt?: number;
+  currentGame?: string;
 }
 
 export type TabCloakPreset =

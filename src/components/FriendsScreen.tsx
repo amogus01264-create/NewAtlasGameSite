@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Friend, CustomGame, FriendRequest, LiveStream } from '../types';
-import { UserPlus, UserX, Play, Users, Search, Lock, Check, Clock, AlertTriangle, X, Radio } from 'lucide-react';
+import { UserPlus, UserX, Play, Users, Search, Lock, Check, AlertTriangle, X, Radio } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
+import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
 
 interface FriendsScreenProps {
   friends: Friend[];
@@ -200,7 +201,14 @@ export const FriendsScreen: React.FC<FriendsScreenProps> = ({
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full overflow-hidden bg-black border border-slate-700 shrink-0">
-                      <img src={req.fromPic} alt="" className="w-full h-full object-cover" />
+                      <img
+                        src={req.fromPic || MISSING_TEXTURE_DATA_URL}
+                        alt={req.fromUser}
+                        onError={(e) => {
+                          e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                        }}
+                        className="w-full h-full object-cover"
+                      />
                     </div>
                     <div>
                       <h3 className="text-xs font-bold text-white">{req.fromUser}</h3>
@@ -263,7 +271,14 @@ export const FriendsScreen: React.FC<FriendsScreenProps> = ({
                   className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-inner relative overflow-hidden bg-black border border-slate-700"
                 >
                   {friend.avatarPic ? (
-                    <img src={friend.avatarPic} alt="" className="w-full h-full object-cover" />
+                    <img
+                      src={friend.avatarPic}
+                      alt={friend.username}
+                      onError={(e) => {
+                        e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                      }}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <div
                       className="w-full h-full flex items-center justify-center"

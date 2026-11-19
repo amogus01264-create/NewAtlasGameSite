@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { CustomGame, Friend, UserProfile, LiveStream } from '../types';
-import { Plus, UserPlus, Play, Lock, AlertCircle, X, Settings, Radio, Eye, Gamepad2, Tv, ShieldCheck } from 'lucide-react';
+import { Plus, UserPlus, Play, Lock, Settings, Radio, Eye, ShieldCheck } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
+import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
 
 interface HomeScreenProps {
   games: CustomGame[];
@@ -124,9 +125,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               title="Click to edit profile or upload photo in Settings"
             >
               <img
-                src={userProfile.gamerpic}
+                src={userProfile.gamerpic || MISSING_TEXTURE_DATA_URL}
                 alt={userProfile.gamertag}
                 referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                }}
                 className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-90" />
@@ -203,11 +207,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                       className="p-2.5 bg-[#151c28] hover:bg-[#1f283a] rounded border border-slate-800 transition-all flex items-center justify-between cursor-pointer"
                     >
                       <div className="flex items-center gap-2.5">
-                        <div
-                          className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-inner"
-                          style={{ backgroundColor: friend.avatarBg }}
-                        >
-                          {friend.username.charAt(0).toUpperCase()}
+                        <div className="w-8 h-8 rounded-full overflow-hidden bg-black border border-slate-700 relative shrink-0 flex items-center justify-center">
+                          {friend.avatarPic ? (
+                            <img
+                              src={friend.avatarPic}
+                              alt={friend.username}
+                              onError={(e) => {
+                                e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                              }}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div
+                              className="w-full h-full flex items-center justify-center text-xs font-bold text-white shadow-inner"
+                              style={{ backgroundColor: friend.avatarBg }}
+                            >
+                              {friend.username.charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <span
+                            className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-[#151c28] ${
+                              friend.status === 'playing'
+                                ? 'bg-cyan-400'
+                                : 'bg-emerald-400'
+                            }`}
+                          />
                         </div>
                         <div>
                           <div className="text-xs font-bold text-white truncate max-w-[110px]">

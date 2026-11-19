@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Friend, FriendRequest, NetworkUser, UserProfile } from '../types';
-import { getAllNetworkUsers, getAllNetworkUsersAsync, findNetworkUserAsync } from '../services/userService';
-import { X, Search, UserPlus, Clock, Check, UserX, AlertCircle, ShieldAlert, Loader2 } from 'lucide-react';
+import {
+  getAllNetworkUsers,
+  subscribeToNetworkUsers,
+  findNetworkUserAsync,
+} from '../services/userService';
+import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
+import { X, Search, UserPlus, Clock, Check, UserX, AlertCircle, Loader2 } from 'lucide-react';
 import { sounds } from '../services/soundEffects';
 
 interface FriendBrowserModalProps {
@@ -32,27 +37,18 @@ export const FriendBrowserModal: React.FC<FriendBrowserModalProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
-  // All network users excluding self (initial local + async cloud sync)
+  // All network users excluding self (initial local + live Cloud Firestore presence/avatar sync)
   const [allUsers, setAllUsers] = useState<NetworkUser[]>(() =>
     getAllNetworkUsers(userProfile.gamertag)
   );
 
   useEffect(() => {
-    let mounted = true;
     setIsLoadingUsers(true);
-    getAllNetworkUsersAsync(userProfile.gamertag)
-      .then((users) => {
-        if (mounted) {
-          setAllUsers(users);
-        }
-      })
-      .catch(console.error)
-      .finally(() => {
-        if (mounted) setIsLoadingUsers(false);
-      });
-    return () => {
-      mounted = false;
-    };
+    const unsub = subscribeToNetworkUsers(userProfile.gamertag, (users) => {
+      setAllUsers(users);
+      setIsLoadingUsers(false);
+    });
+    return unsub;
   }, [userProfile.gamertag]);
 
   // Filtered browse list
@@ -237,8 +233,11 @@ export const FriendBrowserModal: React.FC<FriendBrowserModalProps> = ({
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full overflow-hidden bg-black border border-slate-700 relative shrink-0">
                           <img
-                            src={user.avatarPic}
-                            alt=""
+                            src={user.avatarPic || MISSING_TEXTURE_DATA_URL}
+                            alt={user.username}
+                            onError={(e) => {
+                              e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                            }}
                             className="w-full h-full object-cover"
                           />
                           <div
@@ -401,7 +400,14 @@ export const FriendBrowserModal: React.FC<FriendBrowserModalProps> = ({
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-full overflow-hidden bg-black border border-slate-700 shrink-0">
-                          <img src={req.fromPic} alt="" className="w-full h-full object-cover" />
+                          <img
+                            src={req.fromPic || MISSING_TEXTURE_DATA_URL}
+                            alt={req.fromUser}
+                            onError={(e) => {
+                              e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                            }}
+                            className="w-full h-full object-cover"
+                          />
                         </div>
                         <div>
                           <div className="text-xs font-bold text-white">{req.fromUser}</div>

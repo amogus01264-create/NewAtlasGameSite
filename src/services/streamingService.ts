@@ -16,6 +16,7 @@ import { db } from './firebase';
 import { LiveStream, StreamMessage, UserProfile, Friend } from '../types';
 import { MISSING_TEXTURE_DATA_URL } from '../utils/assets';
 import { compressImageToDataUrl } from '../utils/imageCompressor';
+import { sanitizeAvatarUrl } from './userService';
 
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
@@ -815,9 +816,13 @@ export function subscribeToActiveStreams(
       const list: LiveStream[] = [];
       snapshot.forEach((d) => {
         const data = d.data() as LiveStream;
-        const streamerLower = data.streamer.toLowerCase();
+        const cleanStream: LiveStream = {
+          ...data,
+          streamerPic: sanitizeAvatarUrl(data.streamerPic),
+        };
+        const streamerLower = cleanStream.streamer.toLowerCase();
 
-        const startedTime = new Date(data.startedAt || 0).getTime();
+        const startedTime = new Date(cleanStream.startedAt || 0).getTime();
         // Skip stale abandoned streams older than 4 hours
         if (Date.now() - startedTime > 4 * 60 * 60 * 1000) {
           return;
@@ -825,11 +830,11 @@ export function subscribeToActiveStreams(
 
         // If public: visible to everyone
         // If friends: visible if streamer is self OR streamer is in friends list
-        if (data.visibility === 'public') {
-          list.push(data);
-        } else if (data.visibility === 'friends') {
+        if (cleanStream.visibility === 'public') {
+          list.push(cleanStream);
+        } else if (cleanStream.visibility === 'friends') {
           if (streamerLower === currentGamertag || friendUsernames.has(streamerLower)) {
-            list.push(data);
+            list.push(cleanStream);
           }
         }
       });

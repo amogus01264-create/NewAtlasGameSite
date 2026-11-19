@@ -148,6 +148,56 @@ async function startServer() {
     });
   });
 
+  // Load Firebase client config once for beacon presence fallback
+  let firebaseAppletCfg: { projectId?: string; firestoreDatabaseId?: string; apiKey?: string } | null = null;
+  try {
+    const cfgRaw = fs.readFileSync(path.join(__dirname, 'firebase-applet-config.json'), 'utf8');
+    firebaseAppletCfg = JSON.parse(cfgRaw);
+  } catch {
+    firebaseAppletCfg = null;
+  }
+
+  // API: Beacon endpoint for marking a user offline when closing/navigating away from Atlas
+  app.post('/api/presence/offline', express.text({ type: '*/*', limit: '16kb' }), async (req, res) => {
+    try {
+      let body: any = req.body;
+      if (typeof body === 'string') {
+        try {
+          body = JSON.parse(body);
+        } catch {
+          body = null;
+        }
+      }
+      const rawUsername = typeof body?.username === 'string' ? body.username.trim().toLowerCase() : '';
+      if (!rawUsername || !/^[a-z0-9_-]{3,32}$/.test(rawUsername)) {
+        return res.status(400).json({ error: 'Invalid username' });
+      }
+
+      if (firebaseAppletCfg?.projectId && firebaseAppletCfg?.apiKey) {
+        const dbId = firebaseAppletCfg.firestoreDatabaseId || '(default)';
+        const endpoint =
+          `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(firebaseAppletCfg.projectId)}` +
+          `/databases/${encodeURIComponent(dbId)}/documents/accounts/${encodeURIComponent(rawUsername)}` +
+          `?updateMask.fieldPaths=presenceStatus&updateMask.fieldPaths=currentGame&key=${encodeURIComponent(firebaseAppletCfg.apiKey)}`;
+
+        await fetch(endpoint, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields: {
+              presenceStatus: { stringValue: 'offline' },
+              currentGame: { stringValue: '' },
+            },
+          }),
+        }).catch(() => null);
+      }
+
+      res.json({ success: true });
+    } catch {
+      res.status(200).json({ success: false });
+    }
+  });
+
   // API: Test whether a URL has X-Frame-Options or frame-ancestors CSP
   app.get('/api/check-frameable', async (req, res) => {
     const targetUrl = req.query.url as string;

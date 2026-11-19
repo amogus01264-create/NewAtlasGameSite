@@ -12,6 +12,7 @@ import {
   deleteAccountAsync,
   deleteAllAccountsAsync,
   saveSession,
+  sanitizeAvatarUrl,
 } from '../services/userService';
 
 interface SignInModalProps {
@@ -31,6 +32,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<RegisteredAccount | null>(null);
   const [showPurgeConfirm, setShowPurgeConfirm] = useState(false);
@@ -65,17 +67,24 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (file) {
       if (file.size > 20 * 1024 * 1024) {
         setErrorMessage('Please choose an image under 20MB');
         return;
       }
+      setIsUploadingImage(true);
       try {
-        const compressed = await compressImageToDataUrl(file, 96, 96, 0.75);
+        setErrorMessage(null);
+        const compressed = await compressImageToDataUrl(file, 128, 128, 0.8);
         setCustomImage(compressed);
         sounds.playSelect();
-      } catch (err) {
+      } catch (err: any) {
         console.warn('Avatar compression error:', err);
+        setErrorMessage(err?.message || 'Could not load image. Please use PNG, JPG, GIF, or WebP.');
+        sounds.playBack();
+      } finally {
+        setIsUploadingImage(false);
       }
     }
   };
@@ -125,7 +134,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting || isDeleting) return;
+    if (isSubmitting || isDeleting || isUploadingImage) return;
     setErrorMessage(null);
     setSuccessNotice(null);
 
@@ -178,7 +187,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
 
         const profile: UserProfile = {
           gamertag: authResult.account.username,
-          gamerpic: authResult.account.gamerpic || MISSING_TEXTURE_DATA_URL,
+          gamerpic: sanitizeAvatarUrl(authResult.account.gamerpic),
           isGuest: false,
           rememberMe,
         };
@@ -237,16 +246,24 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
     }
   };
 
-  const handleQuickAccountPick = (account: RegisteredAccount) => {
-    const profile: UserProfile = {
-      gamertag: account.username,
-      gamerpic: account.gamerpic || MISSING_TEXTURE_DATA_URL,
-      isGuest: false,
-      rememberMe: true,
-    };
-    saveSession(profile);
-    sounds.playLaunch();
-    onSignIn(profile);
+  const handleQuickAccountPick = async (account: RegisteredAccount) => {
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const authResult = await authenticateUserAsync(account.username, account.password);
+      const freshAcc = authResult.success && authResult.account ? authResult.account : account;
+      const profile: UserProfile = {
+        gamertag: freshAcc.username,
+        gamerpic: sanitizeAvatarUrl(freshAcc.gamerpic),
+        isGuest: false,
+        rememberMe: true,
+      };
+      saveSession(profile);
+      sounds.playLaunch();
+      onSignIn(profile);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleQuickGuest = () => {
@@ -365,7 +382,14 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
                       title={`Click to log in as ${acc.username}`}
                     >
                       <div className="w-4 h-4 rounded-full overflow-hidden bg-black shrink-0">
-                        <img src={acc.gamerpic} alt="" className="w-full h-full object-cover" />
+                        <img
+                          src={acc.gamerpic || MISSING_TEXTURE_DATA_URL}
+                          alt=""
+                          onError={(e) => {
+                            e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                          }}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                       <span className="font-bold truncate max-w-[85px]">{acc.username}</span>
                     </button>
@@ -590,6 +614,9 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
                     <img
                       src={customImage || MISSING_TEXTURE_DATA_URL}
                       alt="Uploaded avatar preview"
+                      onError={(e) => {
+                        e.currentTarget.src = MISSING_TEXTURE_DATA_URL;
+                      }}
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -605,11 +632,22 @@ export const SignInModal: React.FC<SignInModalProps> = ({ onSignIn }) => {
                     />
                     <button
                       type="button"
+                      disabled={isUploadingImage}
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-[#242b38] hover:bg-[#30394a] text-slate-200 text-xs font-semibold rounded-md border border-slate-600 transition-colors cursor-pointer"
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-[#242b38] hover:bg-[#30394a] disabled:opacity-60 text-slate-200 text-xs font-semibold rounded-md border border-slate-600 transition-colors cursor-pointer"
                     >
-                      <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>{customImage ? 'Change Image' : 'Upload Custom Image'}</span>
+                      {isUploadingImage ? (
+                        <Loader2 className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5 text-cyan-400" />
+                      )}
+                      <span>
+                        {isUploadingImage
+                          ? 'Processing Image...'
+                          : customImage
+                            ? 'Change Image'
+                            : 'Upload Custom Image'}
+                      </span>
                     </button>
                     <p className="text-[10px] text-slate-400 mt-1 truncate">
                       {customImage ? 'Custom image loaded!' : 'Default: Missing Texture (purple/black)'}

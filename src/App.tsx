@@ -64,6 +64,13 @@ import {
   unfriendUsers,
   clearLocalAccountsCache,
   deleteAccountAsync,
+  PRESENCE_HEARTBEAT_INTERVAL_MS,
+  updateUserPresenceAsync,
+  sendOfflinePresenceBeacon,
+  updateUserProfileAsync,
+  subscribeToOwnAccount,
+  isDefaultOrLegacyAvatar,
+  sanitizeAvatarUrl,
 } from './services/userService';
 
 export const PRESET_GAMES: CustomGame[] = [
@@ -244,15 +251,78 @@ export default function App() {
         setRequests(liveRequests);
       });
 
+      // 3. Keep signed-in user's own avatar synced with Cloud Firestore without clobbering local custom images
+      let syncedLocalUp = false;
+      const unsubOwn = subscribeToOwnAccount(userProfile.gamertag, (acc) => {
+        if (!acc) return;
+        const cloudPic = sanitizeAvatarUrl(acc.gamerpic);
+        setUserProfile((prev) => {
+          if (!prev || prev.isGuest) return prev;
+          const localHasCustom = !isDefaultOrLegacyAvatar(prev.gamerpic);
+          const cloudHasCustom = !isDefaultOrLegacyAvatar(cloudPic);
+
+          if (localHasCustom && !cloudHasCustom && !syncedLocalUp) {
+            syncedLocalUp = true;
+            updateUserProfileAsync(prev.gamertag, { gamerpic: prev.gamerpic }).catch(() => null);
+            return prev;
+          }
+
+          if (cloudHasCustom && prev.gamerpic !== cloudPic) {
+            const next = { ...prev, gamerpic: cloudPic };
+            if (next.rememberMe || getSavedSession()?.gamertag?.toLowerCase() === next.gamertag.toLowerCase()) {
+              saveSession(next);
+            }
+            return next;
+          }
+
+          if (!localHasCustom && prev.gamerpic !== MISSING_TEXTURE_DATA_URL) {
+            const next = { ...prev, gamerpic: MISSING_TEXTURE_DATA_URL };
+            if (next.rememberMe || getSavedSession()?.gamertag?.toLowerCase() === next.gamertag.toLowerCase()) {
+              saveSession(next);
+            }
+            return next;
+          }
+
+          return prev;
+        });
+      });
+
       return () => {
         unsubFriends();
         unsubRequests();
+        unsubOwn();
       };
     } else {
       setFriends([]);
       setRequests([]);
     }
   }, [userProfile?.gamertag, userProfile?.isGuest]);
+
+  // Real-time online/playing/offline presence heartbeat & tab-close beacon
+  useEffect(() => {
+    if (!userProfile || userProfile.isGuest) return;
+    const gamertag = userProfile.gamertag;
+    const status = activeGame ? 'playing' : 'online';
+    const gameTitle = activeGame?.title;
+
+    updateUserPresenceAsync(gamertag, status, gameTitle).catch(() => null);
+
+    const heartbeatId = window.setInterval(() => {
+      updateUserPresenceAsync(gamertag, status, gameTitle).catch(() => null);
+    }, PRESENCE_HEARTBEAT_INTERVAL_MS);
+
+    const handleUnload = () => {
+      sendOfflinePresenceBeacon(gamertag);
+    };
+    window.addEventListener('pagehide', handleUnload);
+    window.addEventListener('beforeunload', handleUnload);
+
+    return () => {
+      window.clearInterval(heartbeatId);
+      window.removeEventListener('pagehide', handleUnload);
+      window.removeEventListener('beforeunload', handleUnload);
+    };
+  }, [userProfile?.gamertag, userProfile?.isGuest, activeGame?.id, activeGame?.title]);
 
   // Realtime subscription to live game broadcasts on Atlas
   const friendKeys = friends.map((f) => f.username.toLowerCase()).sort().join(',');
@@ -319,6 +389,9 @@ export default function App() {
   };
 
   const handleLogOut = () => {
+    if (userProfile && !userProfile.isGuest) {
+      updateUserPresenceAsync(userProfile.gamertag, 'offline').catch(() => null);
+    }
     setUserProfile(null);
     saveSession(null);
     sounds.playBack();
@@ -907,9 +980,26 @@ export default function App() {
       {settingsOpen && (
         <SettingsModal
           userProfile={userProfile}
-          onUpdateProfile={(updated) => {
+          onUpdateProfile={async (updated) => {
+            if (!updated.isGuest && updated.gamerpic !== userProfile.gamerpic) {
+              const res = await updateUserProfileAsync(userProfile.gamertag, { gamerpic: updated.gamerpic });
+              if (!res.success) {
+                throw new Error(res.error || 'Failed to save custom profile picture.');
+              }
+              const synced: UserProfile = {
+                ...updated,
+                gamerpic: res.gamerpic || updated.gamerpic,
+              };
+              setUserProfile(synced);
+              if (synced.rememberMe || getSavedSession()?.gamertag?.toLowerCase() === synced.gamertag.toLowerCase()) {
+                saveSession(synced);
+              }
+              return;
+            }
             setUserProfile(updated);
-            if (updated.rememberMe) saveSession(updated);
+            if (updated.rememberMe || getSavedSession()?.gamertag?.toLowerCase() === updated.gamertag.toLowerCase()) {
+              saveSession(updated);
+            }
           }}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
